@@ -1,0 +1,18 @@
+# Runs the Pick and Spin router (CPU only) inside the cluster against the model Services.
+# Build an image from this repository first (see README) and set its name below.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pick-and-spin-router
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: router
+          image: REPLACE_WITH_YOUR_IMAGE
+          command: ["python", "src/pickspin/run_live.py", "--endpoints", "deploy/endpoints.example.json", "--workers", "250"]
+          resources:
+            requests: {cpu: "4", memory: 8Gi}
+            limits: {cpu: "8", memory: 16Gi}

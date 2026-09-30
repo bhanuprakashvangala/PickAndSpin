@@ -1,0 +1,5 @@
+model_size,scored_routed_queries
+1-3B,5342
+7-9B,22062
+14-27B,980
+Total,28384

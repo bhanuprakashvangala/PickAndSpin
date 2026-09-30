@@ -1,0 +1,72 @@
+{{- range $name, $m := .Values.models }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {app: pick-and-spin, model: {{ $name }}}
+  annotations:
+    pickandspin/model-key: {{ $m.key | quote }}
+spec:
+  replicas: {{ $m.replicas }}
+  selector:
+    matchLabels: {app: pick-and-spin, model: {{ $name }}}
+  template:
+    metadata:
+      labels: {app: pick-and-spin, model: {{ $name }}}
+    spec:
+      {{- with $.Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vllm
+          image: {{ $.Values.image }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          args:
+            - --model={{ $m.hfModel }}
+            - --port=8000
+            - --max-model-len={{ $m.maxModelLen }}
+            - --gpu-memory-utilization=0.9
+            - --tensor-parallel-size={{ $m.gpus }}
+          env:
+            - name: HF_HOME
+              value: /cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.hfTokenSecret }}, key: HF_TOKEN, optional: true}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 5
+            failureThreshold: 120
+          resources:
+            limits:
+              {{ $.Values.gpuResource }}: {{ $m.gpus }}
+              memory: {{ $m.memory }}
+            requests:
+              {{ $.Values.gpuResource }}: {{ $m.gpus }}
+              memory: {{ $m.memory }}
+          volumeMounts:
+            - {name: hf-cache, mountPath: /cache}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim: {claimName: {{ $.Release.Name }}-hf-cache}
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: 8Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {app: pick-and-spin, model: {{ $name }}}
+spec:
+  selector: {app: pick-and-spin, model: {{ $name }}}
+  ports:
+    - port: 8000
+      targetPort: 8000
+{{- end }}

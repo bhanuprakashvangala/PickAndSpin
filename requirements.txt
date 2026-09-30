@@ -1,0 +1,4 @@
+# Offline reproduction (scripts/reproduce.py)
+matplotlib>=3.7
+# Live runners (src/pickspin, src/baseline)
+requests>=2.31

@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this code or data, please cite the paper."
+title: "Pick and Spin"
+repository-code: "https://github.com/bhanuprakashvangala/PickAndSpin"
+license: MIT
+authors:
+  - family-names: Vangala
+    given-names: Bhanu Prakash
+  - family-names: Malik
+    given-names: Tanu
+preferred-citation:
+  type: conference-paper
+  title: "Pick and Spin: Cold-Start-Aware Routing for Self-Hosted LLM Serving"
+  collection-title: "IEEE International Conference on Cloud Computing (CLOUD)"
+  year: 2026
+  url: "https://bhanuprakashvangala.github.io/files/papers/pick-and-spin.pdf"
+  authors:
+    - family-names: Vangala
+      given-names: Bhanu Prakash
+    - family-names: Malik
+      given-names: Tanu
