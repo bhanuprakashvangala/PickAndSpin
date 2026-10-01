@@ -5,52 +5,53 @@ Bhanu Prakash Vangala, Tanu Malik.
 IEEE CLOUD 2026. [Paper (PDF)](https://bhanuprakashvangala.github.io/files/papers/pick-and-spin.pdf) |
 [Code](https://github.com/bhanuprakashvangala/PickAndSpin)
 
-Pick and Spin routes each query to one of nine self-hosted LLMs (1B to 27B parameters) served with vLLM.
-Pick puts a query into a complexity tier with keyword rules and picks a model in that tier with Thompson Sampling,
-scoring each model on its sampled success rate, its mean inference latency and an exploration bonus; the reward is
-whether the request succeeded. Spin keeps a WARM/COLD state per model (a model turns cold after 300 s without
-traffic) and, when a query reaches a cold model, adds that model's cold-start penalty (`src/pickspin/config.py`)
-to the query's total latency.
+Pick and Spin serves nine self-hosted LLMs (1B to 27B parameters) with vLLM on Kubernetes.
+
+- **Pick** (`src/pickspin/pick.py`, `classifier.py`) puts each query into a tier: three keyword lists first, and a
+  fine-tuned DistilBERT for queries that match no list (Eq. 1). Within the tier it samples each model's success rate
+  from a Beta posterior blended with the tier's posterior (Eqs. 2-3) and picks the model with the highest
+  S(m) = 0.7 * mu_HTS + 0.3 * L_norm + 0.1 / sqrt(n + 1) (Eq. 4). L_norm comes from the latency Spin reports, which
+  includes the cold-start time of a model that is not warm.
+- **Spin** (`src/pickspin/spin.py`) keeps every model COLD, LOADING or WARM. A query routed to a cold model scales
+  that model's Deployment to one replica and waits until the weights are loaded; a model with nothing in flight for
+  300 s is scaled back to zero and its GPU released. Load times follow Eq. 5, and loads that overlap share the
+  storage bandwidth. Spin accounts GPU-hours, GPU utilization and cold starts.
 
 ## Models
 
-The routed run used nine vLLM servers, one per model. The static baseline ran every query on the same eight smaller
-models and on Gemma-3-27B.
-
-| Size | Routed run | Static baseline | Pick tier |
+| Model | Tier | Weights (GB) | Cold start (s) |
 |---|---|---|---|
-| 1B | meta-llama/Llama-3.2-1B-Instruct | same | SIMPLE |
-| 1.5B | Qwen/Qwen2.5-1.5B-Instruct | same | SIMPLE |
-| 2B | google/gemma-2-2b-it | same | SIMPLE |
-| 3B | meta-llama/Llama-3.2-3B-Instruct | same | SIMPLE |
-| 7B | Qwen/Qwen2.5-7B-Instruct | same | MEDIUM |
-| 8B | meta-llama/Llama-3.1-8B-Instruct | same | MEDIUM |
-| 9B | google/gemma-2-9b-it | same | MEDIUM |
-| 14B | Qwen/Qwen2.5-14B-Instruct | same | MEDIUM |
-| 27B | google/gemma-2-27b-it | Gemma-3-27B | COMPLEX |
+| meta-llama/Llama-3.2-1B-Instruct | SIMPLE | 2 | 32 |
+| Qwen/Qwen2.5-1.5B-Instruct | SIMPLE | 3 | 35 |
+| google/gemma-2-2b-it | SIMPLE | 4 | 38 |
+| meta-llama/Llama-3.2-3B-Instruct | SIMPLE | 6 | 32 |
+| Qwen/Qwen2.5-7B-Instruct | MEDIUM | 14 | 48 |
+| meta-llama/Llama-3.1-8B-Instruct | MEDIUM | 16 | 42 |
+| google/gemma-2-9b-it | MEDIUM | 18 | 48 |
+| Qwen/Qwen2.5-14B-Instruct | COMPLEX | 28 | 65 |
+| google/gemma-3-27b-it | COMPLEX | 54 | 95 |
 
-Correctness comes from an LLM judge (gpt-oss-120b, prompts in `src/baseline/llm_judge.py`) applied to the static
-baseline responses. A routed query is scored with the judge label of the model it was routed to (for the 27B server,
-the Gemma-3-27B label). Routed queries whose model has no label for that query are reported as unscored.
+Cold-start times are the per-model values in `src/pickspin/config.py` (32-38 s small, 42-48 s medium, 65-95 s
+large, at 1.2 GB/s shared storage). The live runner replaces them with the load times it measures.
 
 ## Layout
 
 ```
 data/queries.jsonl.gz           the 31,019 prompts from 8 benchmarks, as sent to the models
+data/query_tiers.csv.gz         the hybrid classifier's tier for every prompt (input to the simulator)
 results/traces/                 experiment traces (no model responses)
   static_baseline.csv.gz        every query on every model: success, latency, token counts
   judgments.csv.gz              correct/incorrect label per (query, model) from the judge
   pick_spin_routed.csv.gz       the routed run: tier, chosen model, latency, cold-start flag, in arrival order
 results/classifier/             label counts of the DistilBERT training data
 scripts/reproduce.py            regenerates the paper's tables and figures from results/traces/
-src/pickspin/                   Pick (pick.py), Spin (spin.py), config, live runner
+src/pickspin/                   Pick and Spin: classifier, pick, spin, config, simulate.py, run_live.py
+src/recorded_run/               the runner that recorded results/traces/pick_spin_routed.csv.gz (see Results)
 src/baseline/                   static baseline runner and the LLM judge
 src/classifier/                 complexity labels and DistilBERT training
-deploy/                         Helm chart for the nine vLLM servers (written for this release), endpoint map, router Job
+deploy/                         Helm chart (nine vLLM Deployments, router RBAC), endpoint map, router Job and image
+tests/                          unit tests and a live-runner test against a stub cluster
 ```
-
-The static baseline and judge traces also contain Llama-3-70B and Kimi-K2, which are used only to build the
-classifier labels.
 
 ## Setup
 
@@ -60,11 +61,12 @@ cd PickAndSpin
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+python -m pytest tests           # about 5 seconds
 ```
 
 ## Reproduce
 
-### Tables and figures from the traces (no GPU, about 10 seconds)
+### Paper tables and figures from the traces (no GPU, about 10 seconds)
 
 ```bash
 python scripts/reproduce.py
@@ -80,24 +82,54 @@ This writes to `results/`:
 
 It prints the comparison and exits non-zero if any value differs.
 
+### Simulation (no GPU, about 10 minutes)
+
+```bash
+python src/pickspin/simulate.py                                   # 250 closed-loop clients
+python src/pickspin/simulate.py --arrival-rate 8 4 2 1 0.5 0.25    # Poisson arrivals, queries per second
+```
+
+The simulator runs the code in `src/pickspin` unchanged on a simulated clock. A query routed to a model takes the
+latency and success recorded for that query on that model in the static baseline, and its correctness is the judge
+label. Cold starts take the per-model time of Eq. 5, loads that overlap share 1.2 GB/s, and queries for a model that
+is loading wait for it. Each load is run with five seeds for four policies:
+
+- `pick-and-spin`: scale to zero; Pick scores Spin's latency, including the cold-start time of a cold model
+- `pick-and-spin-observed`: scale to zero; Pick scores the mean latency it has observed, cold-start waits included
+- `unaware`: scale to zero; Pick scores inference latency only
+- `static`: every model warm for the whole run
+
+Results go to `results/simulation/<load>/` (per-seed summary, per model, cold starts per tier; `--write-queries`
+adds a per-query trace) and `results/simulation/overview.csv`, which averages the seeds and compares each policy's
+GPU-hours with the static deployment. Tiers come from `data/query_tiers.csv.gz`, the hybrid classifier's output for
+every query; `--reclassify` recomputes it with the trained DistilBERT.
+
+A model in the simulator serves any number of queries at once with their recorded latencies; `--max-concurrency`
+caps that.
+
 ### Classifier labels and DistilBERT (GPU recommended)
 
 ```bash
 pip install -r requirements-classifier.txt
 python src/classifier/generate_labels.py   # writes data/classifier/{train,val}.jsonl
-python src/classifier/train_distilbert.py  # writes models/
+python src/classifier/train_distilbert.py  # writes models/distilbert-complexity-classifier
 ```
 
 `generate_labels.py` labels each query with the smallest model group the judge marks correct: SIMPLE (1B to 3B),
 MEDIUM (7B to 14B) or COMPLEX (Gemma-3-27B, Llama-3-70B, Kimi-K2, or no model correct), then splits 80/20 into
-24,815 training and 6,204 validation queries. `train_distilbert.py` fine-tunes distilbert-base-uncased on them.
-The router in `src/pickspin` uses keyword rules and does not load this model. The trained weights (255 MB) are not
-included; they are available on request or can be retrained with the script.
+24,815 training and 6,204 validation queries. `train_distilbert.py` fine-tunes distilbert-base-uncased on them, and
+`evaluate.py` reports the accuracy of the keyword lists, DistilBERT and the hybrid classifier on the validation split.
+
+The trained classifier is on Hugging Face:
+
+```bash
+hf download bhanuprakashvangala/pickspin-distilbert-complexity --local-dir models/distilbert-complexity-classifier
+```
 
 ### Live experiments on a Kubernetes cluster
 
-You need NVIDIA GPUs, the NVIDIA device plugin, a ReadWriteMany storage class, and a Hugging Face token
-with access to the Llama and Gemma weights.
+You need NVIDIA GPUs (an 80 GB GPU for Gemma-3-27B), the NVIDIA device plugin, a ReadWriteMany storage class, and a
+Hugging Face token with access to the Llama and Gemma weights.
 
 ```bash
 kubectl create namespace pick-and-spin
@@ -106,23 +138,37 @@ helm install pick-and-spin deploy/helm/pick-and-spin -n pick-and-spin \
   --set storage.storageClass=<your-rwx-class>
 ```
 
-`deploy/endpoints.example.json` maps model keys to the in-cluster Service names. From a pod in the namespace
-(for example with `deploy/router-job.yaml` after building an image from this repository), or from your machine
-after `kubectl port-forward` and an edited endpoint file:
+Every Deployment starts at zero replicas. Build the router image (`deploy/Dockerfile`, after training or copying the
+classifier into `models/`), set it in `deploy/router-job.yaml` and start the Job, which runs as the ServiceAccount the
+chart creates and is allowed to scale the model Deployments:
+
+```bash
+docker build -f deploy/Dockerfile -t <registry>/pick-and-spin-router . && docker push <registry>/pick-and-spin-router
+kubectl -n pick-and-spin apply -f deploy/router-job.yaml
+```
+
+`run_live.py` scales every model to zero, routes the queries with 250 workers, and writes
+`results/live/pick_spin_<time>.jsonl` and a summary with the GPU-hours, utilization and cold starts that Spin
+measured. `--static` keeps every model running instead (install the chart with `--set startReplicas=1`), and
+`--limit 100` gives a quick check. The static baseline and the judge:
 
 ```bash
 python src/baseline/run_static_baseline.py --endpoints deploy/endpoints.example.json   # 9 x 31,019 runs
 cp .env.example .env    # set JUDGE_API_BASE, JUDGE_API_KEY, JUDGE_MODEL
 python src/baseline/llm_judge.py
-python src/pickspin/run_live.py --endpoints deploy/endpoints.example.json --workers 250
 ```
-
-Use `--limit 100` on either runner for a quick check. Outputs go to `results/live/`.
 
 ## Results
 
 `scripts/reproduce.py` computes every value below from `results/traces/`. Each one equals the value in the paper;
 `results/verification.csv` lists all 84 comparisons.
+
+The routed trace was recorded with the runner kept in `src/recorded_run/`: keyword rules only (no DistilBERT), the 14B
+model in the medium tier, Pick scoring inference latency, cold starts recorded as a fixed per-model penalty while
+all nine servers kept running, and google/gemma-2-27b-it as the 27B server. The static baseline used Gemma-3-27B.
+Correctness comes from an LLM judge (gpt-oss-120b, prompts in `src/baseline/llm_judge.py`) applied to the static
+baseline responses; a routed query is scored with the judge label of the model it was routed to (for the 27B server,
+the Gemma-3-27B label).
 
 | Runs | |
 |---|---|

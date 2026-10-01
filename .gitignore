@@ -7,3 +7,5 @@ data/classifier/
 models/
 *.safetensors
 *.bin
+results/simulation/
+results/classifier/evaluation.json

@@ -1,0 +1,29 @@
+# Lets the router (src/pickspin/run_live.py) scale the model Deployments in this namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.router.serviceAccount }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.router.serviceAccount }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.router.serviceAccount }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.router.serviceAccount }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.router.serviceAccount }}

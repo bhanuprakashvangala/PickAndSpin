@@ -8,7 +8,7 @@ metadata:
   annotations:
     pickandspin/model-key: {{ $m.key | quote }}
 spec:
-  replicas: {{ $m.replicas }}
+  replicas: {{ $.Values.startReplicas }}
   selector:
     matchLabels: {app: pick-and-spin, model: {{ $name }}}
   template:

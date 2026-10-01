@@ -1,271 +1,99 @@
-"""
-PICK Component: Intelligent Model Selection
+"""Pick: complexity-aware routing (Sec. IV).
 
-1. Complexity classification with keyword rules
-2. Thompson Sampling with Hybrid Estimation (HTS)
-3. Latency-Aware Scoring
-4. Confidence-Based Escalation
+A query is classified into a tier by the hybrid classifier (Eq. 1). Within the tier each
+model m keeps a Beta(alpha_m, beta_m) posterior of its success rate (Eq. 2), blended with
+the tier's posterior (Hybrid Tier-Model Estimation, Eq. 3):
+
+    mu_HTS(m) = (1 - w) * mu_m + w * mu_tau,       mu_m ~ Beta(alpha_m, beta_m), mu_tau ~ Beta(alpha_tau, beta_tau)
+
+and the model with the highest score is selected (Eq. 4):
+
+    S(m) = (1 - lambda) * mu_HTS(m) + lambda * L_norm(m) + epsilon / sqrt(n_m + 1)
+    L_norm(m) = 1 - L(m) / max_{m' in tier} L(m')
+
+L(m) is the latency that Spin reports for m (spin.Spin.latency_estimate), which includes the
+cold-start penalty of a model that is not warm. Models without a latency observation get
+L_norm = 0.5.
 """
 
+import math
 import random
 import threading
-from config import MODELS, TIERS, ROUTING
+
+from config import MODELS, ROUTING, TIERS
 
 
 class ThompsonSampler:
-    """
-    Thompson Sampling with Hybrid Tier-Model Estimation (HTS)
-
-    For each model m, maintains Beta(α_m, β_m) distribution.
-    For each tier τ, maintains Beta(α_τ, β_τ) distribution.
-
-    Selection score:
-        S(m) = (1-λ)·μ_HTS + λ·L_norm + ε/√(n+1)
-
-    Where:
-        μ_HTS = (1-w)·μ_model + w·μ_tier  (hybrid blend)
-        L_norm = normalized latency score (lower latency = higher score)
-        ε/√(n+1) = exploration bonus
-    """
-
-    def __init__(self):
+    def __init__(self, models=MODELS, tiers=TIERS, params=ROUTING, rng=None):
+        self.tiers = tiers
+        self.p = params
+        self.rng = rng or random.Random()
         self.lock = threading.Lock()
+        a, b = params["alpha_prior"], params["beta_prior"]
+        self.model_ab = {m: [a, b] for m in models}
+        self.tier_ab = {t: [a, b] for t in tiers}
+        self.n = {m: 0 for m in models}
 
-        # Model-level statistics
-        self.model_stats = {
-            m: {
-                "alpha": ROUTING["alpha_prior"],
-                "beta": ROUTING["beta_prior"],
-                "count": 0,
-                "latency_sum": 0.0,
-            }
-            for m in MODELS
-        }
-
-        # Tier-level statistics
-        self.tier_stats = {
-            t: {
-                "alpha": ROUTING["alpha_prior"],
-                "beta": ROUTING["beta_prior"],
-            }
-            for t in TIERS
-        }
-
-    def sample_beta(self, alpha, beta):
-        """Sample from Beta distribution"""
-        return random.betavariate(alpha, beta)
-
-    def select_model(self, tier):
-        """
-        Select best model from tier using Thompson Sampling + HTS
-
-        Returns: (model_name, score)
-        """
-        candidates = TIERS[tier]
-        w = ROUTING["tier_weight"]
-        λ = ROUTING["latency_weight"]
-        ε = ROUTING["exploration_bonus"]
-
+    def select(self, tier, latency_of):
+        """Return (model, score). latency_of(m) gives Spin's latency for m, or None if unknown."""
+        w, lam, eps = self.p["tier_weight"], self.p["latency_weight"], self.p["exploration_bonus"]
+        candidates = self.tiers[tier]
         with self.lock:
-            # Sample tier-level estimate
-            tier_sample = self.sample_beta(
-                self.tier_stats[tier]["alpha"],
-                self.tier_stats[tier]["beta"]
-            )
-
-            # Calculate max latency for normalization
-            latencies = []
+            lat = {m: latency_of(m) for m in candidates}
+            known = [v for v in lat.values() if v is not None]
+            max_lat = max(known) if known else 0.0
+            mu_tier = self.rng.betavariate(*self.tier_ab[tier])
+            best, best_score = None, -math.inf
             for m in candidates:
-                s = self.model_stats[m]
-                if s["count"] > 0:
-                    latencies.append(s["latency_sum"] / s["count"])
-            max_latency = max(latencies) if latencies else 1.0
-
-            best_model = None
-            best_score = -1
-
-            for model in candidates:
-                stats = self.model_stats[model]
-
-                # Sample model-level estimate
-                model_sample = self.sample_beta(stats["alpha"], stats["beta"])
-
-                # HTS: Blend model and tier estimates
-                # μ_HTS = (1-w)·μ_model + w·μ_tier
-                hts_sample = (1 - w) * model_sample + w * tier_sample
-
-                # Latency score (lower latency = higher score)
-                if stats["count"] > 0:
-                    avg_latency = stats["latency_sum"] / stats["count"]
-                    latency_score = 1.0 - (avg_latency / max_latency) if max_latency > 0 else 0.5
+                mu_hts = (1 - w) * self.rng.betavariate(*self.model_ab[m]) + w * mu_tier
+                if lat[m] is None or max_lat <= 0:
+                    l_norm = 0.5
                 else:
-                    latency_score = 0.5  # Neutral for unexplored models
-
-                # Exploration bonus (UCB-style)
-                exploration = ε / (stats["count"] + 1) ** 0.5
-
-                # Combined score: S(m) = (1-λ)·μ_HTS + λ·L_norm + exploration
-                score = (1 - λ) * hts_sample + λ * latency_score + exploration
-
+                    l_norm = 1.0 - lat[m] / max_lat
+                score = (1 - lam) * mu_hts + lam * l_norm + eps / math.sqrt(self.n[m] + 1)
                 if score > best_score:
-                    best_score = score
-                    best_model = model
+                    best, best_score = m, score
+            return best, best_score
 
-            return best_model, best_score
-
-    def update(self, model, tier, success, latency):
-        """Update statistics after observing query outcome"""
+    def update(self, model, tier, success):
+        """alpha <- alpha + 1[success], beta <- beta + 1[failure], for the model and its tier."""
         with self.lock:
-            # Update model stats
-            if success:
-                self.model_stats[model]["alpha"] += 1
-            else:
-                self.model_stats[model]["beta"] += 1
-            self.model_stats[model]["count"] += 1
-            self.model_stats[model]["latency_sum"] += latency
+            k = 0 if success else 1
+            self.model_ab[model][k] += 1
+            self.tier_ab[tier][k] += 1
+            self.n[model] += 1
 
-            # Update tier stats
-            if success:
-                self.tier_stats[tier]["alpha"] += 1
-            else:
-                self.tier_stats[tier]["beta"] += 1
-
-    def get_stats(self):
-        """Return current statistics for reporting"""
+    def stats(self):
         with self.lock:
-            return {
-                m: {
-                    "count": s["count"],
-                    "success_rate": s["alpha"] / (s["alpha"] + s["beta"]),
-                    "avg_latency": s["latency_sum"] / s["count"] if s["count"] > 0 else 0,
-                }
-                for m, s in self.model_stats.items()
-                if s["count"] > 0
-            }
+            return {m: {"n": self.n[m], "success_rate": a / (a + b)}
+                    for m, (a, b) in self.model_ab.items() if self.n[m]}
 
 
-class Classifier:
-    """
-    Keyword-based complexity classifier (under 1 ms per query).
+class Pick:
+    """route(query, now) -> {"tier", "stage", "model", "score"}; update() after each query.
 
-    Returns a tier and a confidence; queries without a keyword match get MEDIUM with
-    confidence 0.6. No learned classifier is called: self.distilbert is a hook for one.
+    `spin` provides the lifecycle-aware latency (Spin.latency_estimate). `latency_signal`
+    selects what Pick scores on:
+      "spin"      inference latency plus the cold-start penalty of a model that is not warm
+                  (the paper's design, default),
+      "observed"  mean observed total latency, cold-start waits included,
+      "inference" mean inference latency only (Pick ignores Spin's lifecycle state).
     """
 
-    # Keywords for each tier
-    SIMPLE_KEYWORDS = [
-        "what is", "define", "who is", "when was", "where is",
-        "true or false", "which of", "select the", "name the",
-        "list the", "is it true", "yes or no"
-    ]
+    def __init__(self, classifier, spin, latency_signal="spin", rng=None, tiers=TIERS):
+        if latency_signal not in ("spin", "observed", "inference"):
+            raise ValueError(f"unknown latency signal {latency_signal!r}")
+        self.classifier = classifier
+        self.spin = spin
+        self.latency_signal = latency_signal
+        self.sampler = ThompsonSampler(tiers=tiers, rng=rng)
 
-    COMPLEX_KEYWORDS = [
-        "analyze", "explain why", "compare and contrast", "prove",
-        "derive", "implement", "design", "evaluate", "synthesize",
-        "critique", "justify", "hypothesize", "formulate"
-    ]
+    def route(self, query, now, tier=None, stage=None):
+        if tier is None:
+            tier, stage = self.classifier.classify(query)
+        model, score = self.sampler.select(
+            tier, lambda m: self.spin.latency_estimate(m, now, self.latency_signal))
+        return {"tier": tier, "stage": stage, "model": model, "score": score}
 
-    def __init__(self):
-        self.distilbert = None  # hook for a learned classifier; unused
-
-    def classify_keywords(self, query):
-        """
-        Keyword-based classification with confidence
-        Returns: (tier, confidence)
-        """
-        q_lower = query.lower()
-
-        # Check for complex keywords
-        complex_matches = sum(1 for k in self.COMPLEX_KEYWORDS if k in q_lower)
-        if complex_matches >= 2:
-            return "COMPLEX", 0.9
-        if complex_matches == 1:
-            return "COMPLEX", 0.7
-
-        # Check for simple keywords
-        simple_matches = sum(1 for k in self.SIMPLE_KEYWORDS if k in q_lower)
-        if simple_matches >= 2:
-            return "SIMPLE", 0.9
-        if simple_matches == 1:
-            return "SIMPLE", 0.7
-
-        # Default to medium with lower confidence
-        return "MEDIUM", 0.6
-
-    def classify(self, query):
-        """
-        Keyword classification. Returns: (tier, confidence)
-        """
-        tier, confidence = self.classify_keywords(query)
-
-        # If keyword confidence is high enough, use it
-        if confidence >= 0.7:
-            return tier, confidence
-
-        # Low-confidence queries keep the keyword result (no learned fallback is called)
-        return tier, confidence
-
-
-class PickRouter:
-    """
-    Complete PICK component combining:
-    - Keyword complexity classification
-    - Thompson Sampling with HTS
-    - Confidence-based Escalation
-    """
-
-    def __init__(self):
-        self.classifier = Classifier()
-        self.sampler = ThompsonSampler()
-
-    def route(self, query):
-        """
-        Route query to optimal model
-
-        Returns: {
-            "tier": str,
-            "model": str,
-            "confidence": float,
-            "score": float
-        }
-        """
-        # Step 1: Classify query complexity
-        tier, confidence = self.classifier.classify(query)
-
-        # Step 2: Select model via Thompson Sampling
-        model, score = self.sampler.select_model(tier)
-
-        return {
-            "tier": tier,
-            "model": model,
-            "confidence": confidence,
-            "score": score,
-        }
-
-    def maybe_escalate(self, tier, response_confidence):
-        """
-        Check if escalation needed based on response confidence
-
-        Returns: (should_escalate, next_tier, next_model)
-        """
-        δ = ROUTING["confidence_threshold"]
-
-        if response_confidence >= δ:
-            return False, None, None
-
-        if tier == "COMPLEX":
-            return False, None, None  # Already at highest tier
-
-        # Escalate to next tier
-        next_tier = "MEDIUM" if tier == "SIMPLE" else "COMPLEX"
-        next_model, _ = self.sampler.select_model(next_tier)
-
-        return True, next_tier, next_model
-
-    def update(self, model, tier, success, latency):
-        """Update Thompson Sampling statistics"""
-        self.sampler.update(model, tier, success, latency)
-
-    def get_stats(self):
-        """Get current model statistics"""
-        return self.sampler.get_stats()
+    def update(self, model, tier, success):
+        self.sampler.update(model, tier, success)

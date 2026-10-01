@@ -1,9 +1,10 @@
 # Nine models from three families, one vLLM Deployment + Service each.
-# Spin scales an idle model to 0 replicas (COLD) and back to 1 (WARM);
-# set replicas: 0 here to start a model cold.
+# Every Deployment starts with startReplicas replicas. With 0 (the default) all models start
+# COLD and Spin scales them up and down; use --set startReplicas=1 for a static deployment.
 
-image: vllm/vllm-openai:v0.6.3
+image: vllm/vllm-openai:v0.8.5     # Gemma 3 needs vLLM 0.8 or later
 imagePullPolicy: IfNotPresent
+startReplicas: 0
 
 # Shared weight cache (Hugging Face cache on a ReadWriteMany volume).
 storage:
@@ -20,13 +21,18 @@ gpuResource: nvidia.com/gpu
 nodeSelector: {}
 tolerations: []
 
+# The router runs as this ServiceAccount, allowed to scale the Deployments above.
+router:
+  serviceAccount: pick-and-spin-router
+
+# gemma3-27b holds 54 GB of bf16 weights and needs an 80 GB GPU (A100 80GB or H100).
 models:
-  llama32-1b:  {key: llama3.2_1B,  hfModel: meta-llama/Llama-3.2-1B-Instruct, replicas: 1, gpus: 1, memory: 16Gi, maxModelLen: 4096}
-  qwen25-1-5b: {key: qwen2.5_1.5B, hfModel: Qwen/Qwen2.5-1.5B-Instruct,       replicas: 1, gpus: 1, memory: 16Gi, maxModelLen: 4096}
-  gemma2-2b:   {key: gemma2_2B,    hfModel: google/gemma-2-2b-it,             replicas: 1, gpus: 1, memory: 16Gi, maxModelLen: 4096}
-  llama32-3b:  {key: llama3.2_3B,  hfModel: meta-llama/Llama-3.2-3B-Instruct, replicas: 1, gpus: 1, memory: 24Gi, maxModelLen: 4096}
-  qwen25-7b:   {key: qwen2.5_7B,   hfModel: Qwen/Qwen2.5-7B-Instruct,         replicas: 1, gpus: 1, memory: 32Gi, maxModelLen: 4096}
-  llama31-8b:  {key: llama3.1_8B,  hfModel: meta-llama/Llama-3.1-8B-Instruct, replicas: 1, gpus: 1, memory: 32Gi, maxModelLen: 4096}
-  gemma2-9b:   {key: gemma2_9B,    hfModel: google/gemma-2-9b-it,             replicas: 1, gpus: 1, memory: 32Gi, maxModelLen: 4096}
-  qwen25-14b:  {key: qwen2.5_14B,  hfModel: Qwen/Qwen2.5-14B-Instruct,        replicas: 1, gpus: 1, memory: 48Gi, maxModelLen: 4096}
-  gemma2-27b:  {key: gemma2_27B,   hfModel: google/gemma-2-27b-it,            replicas: 1, gpus: 1, memory: 96Gi, maxModelLen: 4096}
+  llama32-1b:  {key: llama3.2_1B,  hfModel: meta-llama/Llama-3.2-1B-Instruct, gpus: 1, memory: 16Gi, maxModelLen: 4096}
+  qwen25-1-5b: {key: qwen2.5_1.5B, hfModel: Qwen/Qwen2.5-1.5B-Instruct,       gpus: 1, memory: 16Gi, maxModelLen: 4096}
+  gemma2-2b:   {key: gemma2_2B,    hfModel: google/gemma-2-2b-it,             gpus: 1, memory: 16Gi, maxModelLen: 4096}
+  llama32-3b:  {key: llama3.2_3B,  hfModel: meta-llama/Llama-3.2-3B-Instruct, gpus: 1, memory: 24Gi, maxModelLen: 4096}
+  qwen25-7b:   {key: qwen2.5_7B,   hfModel: Qwen/Qwen2.5-7B-Instruct,         gpus: 1, memory: 32Gi, maxModelLen: 4096}
+  llama31-8b:  {key: llama3.1_8B,  hfModel: meta-llama/Llama-3.1-8B-Instruct, gpus: 1, memory: 32Gi, maxModelLen: 4096}
+  gemma2-9b:   {key: gemma2_9B,    hfModel: google/gemma-2-9b-it,             gpus: 1, memory: 32Gi, maxModelLen: 4096}
+  qwen25-14b:  {key: qwen2.5_14B,  hfModel: Qwen/Qwen2.5-14B-Instruct,        gpus: 1, memory: 48Gi, maxModelLen: 4096}
+  gemma3-27b:  {key: gemma3_27B,   hfModel: google/gemma-3-27b-it,            gpus: 1, memory: 96Gi, maxModelLen: 4096}
