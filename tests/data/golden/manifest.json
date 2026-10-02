@@ -1,0 +1,65 @@
+{
+ "baseline_commit": "094f53734b591d3663c185e43eb0764e5fa7f416",
+ "python": "3.12",
+ "platform": "win32",
+ "configs": {
+  "closed-default": [
+   "--write-queries"
+  ],
+  "poisson": [
+   "--arrival-rate",
+   "0.25",
+   "4",
+   "--seeds",
+   "0",
+   "--write-queries"
+  ],
+  "stress": [
+   "--policies",
+   "pick-and-spin",
+   "pick-and-spin-observed",
+   "unaware",
+   "--seeds",
+   "0",
+   "--cooldown",
+   "10",
+   "--max-concurrency",
+   "8",
+   "--write-queries"
+  ]
+ },
+ "fingerprints": {
+  "closed-250/pick-and-spin/0": {
+   "run": {
+    "policy": "pick-and-spin",
+    "seed": 0
+   },
+   "sha256": "a8620a6c3f5ed9d7b4456197d6d3aad4ec28abd2f81c511acd37d70e60cd2725"
+  },
+  "closed-250/static/0": {
+   "run": {
+    "policy": "static",
+    "seed": 0
+   },
+   "sha256": "00ac04003b6bf037e7ae677661a677c3ebc70aa1aa98fa18a1641b42e4ae30b1"
+  },
+  "stress/pick-and-spin/0": {
+   "run": {
+    "policy": "pick-and-spin",
+    "seed": 0,
+    "cooldown_s": 10,
+    "max_concurrency": 8
+   },
+   "sha256": "639a66e825b8bb52e4aaf5edd27bf86ff6abbd3bf6fa122e05592b5118c37402"
+  },
+  "poisson-0.25qps-cooldown10/pick-and-spin/0": {
+   "run": {
+    "policy": "pick-and-spin",
+    "seed": 0,
+    "arrival_rate": 0.25,
+    "cooldown_s": 10
+   },
+   "sha256": "1269df6b15e42d6d3ad87fc762debe60ac41308cffbe19d15af79c35610e2b51"
+  }
+ }
+}
