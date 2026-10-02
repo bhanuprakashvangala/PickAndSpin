@@ -1,0 +1,6 @@
+* text=auto
+*.gz binary
+*.png binary
+*.safetensors binary
+*.bin binary
+results/*.csv text eol=crlf
