@@ -58,10 +58,11 @@ jobs:
       - run: pytest tests/unit/test_import_hygiene.py
       - run: pickspin --version
       - name: Reproduce the paper's numbers (exits non-zero unless all 84 match)
-        run: pickspin reproduce
-      - name: The committed tables are unchanged
-        run: git diff --exit-code -- 'results/*.csv'
-      - run: test -f results/figures/fig3_thompson.png
+        run: pickspin reproduce --out "$RUNNER_TEMP/reproduce"
+      - name: The tables match the committed ones byte for byte and every figure is written
+        run: |
+          for f in results/*.csv; do cmp "$f" "$RUNNER_TEMP/reproduce/$(basename "$f")"; done
+          for f in results/figures/*.png; do test -s "$RUNNER_TEMP/reproduce/figures/$(basename "$f")"; done
 
   golden:
     # Same-machine differential check against the frozen code at tag v1.1.0, so it is immune to
