@@ -1,7 +1,0 @@
-# Offline reproduction (scripts/reproduce.py) and simulation (src/pickspin/simulate.py)
-matplotlib>=3.7
-# Live runners (src/pickspin/run_live.py, src/recorded_run, src/baseline)
-requests>=2.31
-kubernetes>=29.0
-# Tests (tests/)
-pytest>=7.0

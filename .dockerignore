@@ -1,0 +1,7 @@
+.git
+.venv
+results/live
+results/simulation
+tests
+legacy
+**/__pycache__

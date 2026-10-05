@@ -1,4 +1,4 @@
-# Lets the router (src/pickspin/run_live.py) scale the model Deployments in this namespace.
+# Lets the router (pickspin live) scale the model Deployments in this namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

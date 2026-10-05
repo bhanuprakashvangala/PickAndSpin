@@ -9,3 +9,11 @@ models/
 *.bin
 results/simulation/
 results/classifier/evaluation.json
+build/
+dist/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/

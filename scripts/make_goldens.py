@@ -30,8 +30,17 @@ CONFIGS: dict[str, list[str]] = {
     "closed-default": ["--write-queries"],
     "poisson": ["--arrival-rate", "0.25", "4", "--seeds", "0", "--write-queries"],
     "stress": [
-        "--policies", "pick-and-spin", "pick-and-spin-observed", "unaware",
-        "--seeds", "0", "--cooldown", "10", "--max-concurrency", "8", "--write-queries",
+        "--policies",
+        "pick-and-spin",
+        "pick-and-spin-observed",
+        "unaware",
+        "--seeds",
+        "0",
+        "--cooldown",
+        "10",
+        "--max-concurrency",
+        "8",
+        "--write-queries",
     ],
 }
 
@@ -40,7 +49,10 @@ FINGERPRINT_RUNS: dict[str, dict[str, object]] = {
     "closed-250/static/0": {"policy": "static", "seed": 0},
     "stress/pick-and-spin/0": {"policy": "pick-and-spin", "seed": 0, "cooldown_s": 10, "max_concurrency": 8},
     "poisson-0.25qps-cooldown10/pick-and-spin/0": {
-        "policy": "pick-and-spin", "seed": 0, "arrival_rate": 0.25, "cooldown_s": 10,
+        "policy": "pick-and-spin",
+        "seed": 0,
+        "arrival_rate": 0.25,
+        "cooldown_s": 10,
     },
 }
 
@@ -84,8 +96,9 @@ def main() -> int:
     ap.add_argument("--force", action="store_true", help="overwrite an existing golden directory")
     args = ap.parse_args()
 
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=args.baseline, check=True,
-                          capture_output=True, text=True).stdout.strip()
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=args.baseline, check=True, capture_output=True, text=True
+    ).stdout.strip()
     if head != BASELINE_COMMIT:
         sys.exit(f"{args.baseline} is at {head}, not v1.1.0 ({BASELINE_COMMIT})")
     if args.out.exists() and any(args.out.iterdir()) and not args.force:
@@ -96,14 +109,23 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         for name, extra in CONFIGS.items():
             run_dir = Path(tmp) / name
-            subprocess.run([sys.executable, "src/pickspin/simulate.py", *extra, "--out", str(run_dir)],
-                           cwd=args.baseline, check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(
+                [sys.executable, "src/pickspin/simulate.py", *extra, "--out", str(run_dir)],
+                cwd=args.baseline,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
             for path in sorted(p for p in run_dir.rglob("*") if p.is_file()):
                 rel = path.relative_to(Path(tmp)).as_posix().removesuffix(".gz")
                 digests.append(f"{sha256_file(path)}  {rel}")
 
-    result = subprocess.run([sys.executable, "-c", SNIPPET, json.dumps(FINGERPRINT_RUNS)],
-                            cwd=args.baseline / "src" / "pickspin", check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", SNIPPET, json.dumps(FINGERPRINT_RUNS)],
+        cwd=args.baseline / "src" / "pickspin",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     fingerprints = json.loads(result.stdout.strip().splitlines()[-1])
 
     (args.out / "outputs.sha256").write_text("".join(d + "\n" for d in digests), encoding="utf-8")
@@ -112,8 +134,9 @@ def main() -> int:
         "python": f"{sys.version_info.major}.{sys.version_info.minor}",
         "platform": sys.platform,
         "configs": CONFIGS,
-        "fingerprints": {name: {"run": FINGERPRINT_RUNS[name], "sha256": fingerprints[name]}
-                         for name in FINGERPRINT_RUNS},
+        "fingerprints": {
+            name: {"run": FINGERPRINT_RUNS[name], "sha256": fingerprints[name]} for name in FINGERPRINT_RUNS
+        },
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     print(f"{len(digests)} output digests and {len(fingerprints)} fingerprints written to {args.out}")

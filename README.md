@@ -7,12 +7,12 @@ IEEE CLOUD 2026. [Paper (PDF)](https://bhanuprakashvangala.github.io/files/paper
 
 Pick and Spin serves nine self-hosted LLMs (1B to 27B parameters) with vLLM on Kubernetes.
 
-- **Pick** (`src/pickspin/pick.py`, `classifier.py`) puts each query into a tier: three keyword lists first, and a
-  fine-tuned DistilBERT for queries that match no list (Eq. 1). Within the tier it samples each model's success rate
-  from a Beta posterior blended with the tier's posterior (Eqs. 2-3) and picks the model with the highest
+- **Pick** (`src/pickspin/pick/`) puts each query into a tier: three keyword lists first, and a fine-tuned
+  DistilBERT for queries that match no list (Eq. 1). Within the tier it samples each model's success rate from a
+  Beta posterior blended with the tier's posterior (Eqs. 2-3) and picks the model with the highest
   S(m) = 0.7 * mu_HTS + 0.3 * L_norm + 0.1 / sqrt(n + 1) (Eq. 4). L_norm comes from the latency Spin reports, which
   includes the cold-start time of a model that is not warm.
-- **Spin** (`src/pickspin/spin.py`) keeps every model COLD, LOADING or WARM. A query routed to a cold model scales
+- **Spin** (`src/pickspin/spin/`) keeps every model COLD, LOADING or WARM. A query routed to a cold model scales
   that model's Deployment to one replica and waits until the weights are loaded; a model with nothing in flight for
   300 s is scaled back to zero and its GPU released. Load times follow Eq. 5, and loads that overlap share the
   storage bandwidth. Spin accounts GPU-hours, GPU utilization and cold starts.
@@ -34,45 +34,85 @@ Pick and Spin serves nine self-hosted LLMs (1B to 27B parameters) with vLLM on K
 Cold-start times are the per-model values in `src/pickspin/config.py` (32-38 s small, 42-48 s medium, 65-95 s
 large, at 1.2 GB/s shared storage). The live runner replaces them with the load times it measures.
 
-## Layout
+## Install
 
-```
-data/queries.jsonl.gz           the 31,019 prompts from 8 benchmarks, as sent to the models
-data/query_tiers.csv.gz         the hybrid classifier's tier for every prompt (input to the simulator)
-results/traces/                 experiment traces (no model responses)
-  static_baseline.csv.gz        every query on every model: success, latency, token counts
-  judgments.csv.gz              correct/incorrect label per (query, model) from the judge
-  pick_spin_routed.csv.gz       the routed run: tier, chosen model, latency, cold-start flag, in arrival order
-results/classifier/             label counts of the DistilBERT training data
-scripts/reproduce.py            regenerates the paper's tables and figures from results/traces/
-src/pickspin/                   Pick and Spin: classifier, pick, spin, config, simulate.py, run_live.py
-src/recorded_run/               the runner that recorded results/traces/pick_spin_routed.csv.gz (see Results)
-src/baseline/                   static baseline runner and the LLM judge
-src/classifier/                 complexity labels and DistilBERT training
-deploy/                         Helm chart (nine vLLM Deployments, router RBAC), endpoint map, router Job and image
-tests/                          unit tests and a live-runner test against a stub cluster
-```
-
-## Setup
+Python 3.11 or later:
 
 ```bash
 git clone https://github.com/bhanuprakashvangala/PickAndSpin.git
 cd PickAndSpin
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python -m pytest tests           # about 5 seconds
+pip install -e ".[dev]"
+pytest tests/unit                # about 10 seconds
 ```
+
+This installs the `pick-and-spin` package (imported as `pickspin`) and the `pickspin` command. The base install
+(matplotlib and requests) reproduces the paper, runs the simulator, the static baseline and the judge, and builds the
+classifier labels. Extras add the rest:
+
+| Extra | Installs | Needed for |
+|---|---|---|
+| `live` | kubernetes | `pickspin live`, except with `--static` |
+| `classifier` | torch, transformers | the DistilBERT stage: `pickspin live`, `pickspin classifier evaluate`, `pickspin simulate --reclassify` |
+| `train` | `classifier` plus datasets, accelerate, scikit-learn, seaborn, numpy | `pickspin classifier train` |
+| `dev` | pytest, pytest-cov, ruff, mypy, types-requests, pre-commit | tests and checks (see Development) |
+
+Combine them as needed, for example `pip install -e ".[dev,live,classifier]"`. For CPU-only torch, install it first
+with `pip install torch --index-url https://download.pytorch.org/whl/cpu`, as `deploy/Dockerfile` does.
+
+## Commands
+
+```
+pickspin [--root DIR] [-v | -q] [--version] <command> ...
+
+pickspin reproduce              the paper's tables and figures from results/traces/, compared with the paper
+pickspin simulate               trace-driven simulation of the four deployment policies
+pickspin live                   a live run on a Kubernetes cluster
+pickspin baseline run           the static baseline: every query on every model
+pickspin baseline judge         the LLM judge's labels for the static baseline responses
+pickspin classifier labels      DistilBERT training labels and the 80/20 split
+pickspin classifier train       fine-tune DistilBERT
+pickspin classifier evaluate    accuracy of the keyword lists, DistilBERT and the hybrid classifier
+```
+
+Run the commands from the repository root, or give the global `--root DIR` (before the command) for the directory
+that holds `data/`, `results/`, `models/` and `deploy/`. Every default path is resolved under it, while paths given
+to a command's flags are used as typed. Progress goes to stderr (`-q` keeps only warnings, `-v` adds debug output),
+and stdout carries only results: the reproduce comparison and the evaluate table. The exit status is 0 on success;
+1 for a missing input file, a missing extra or a missing setting, each reported on one `pickspin: error:` line, and
+for a reproduction that does not match the paper; 2 for a usage error or a missing command, which prints the help to
+stderr; 130 on Ctrl-C. `pickspin <command> --help` lists a command's flags, and `python -m pickspin` is the same
+command.
+
+The commands replace the scripts of version 1.1.0 and keep their flags and defaults. New are the global options,
+flags for input and output paths, `live --cooldown` and `baseline judge --workers`; `CHANGELOG.md` lists every
+change. Tag `v1.1.0` keeps the old layout.
+
+| 1.1.0 | 2.0.0 |
+|---|---|
+| `pip install -r requirements.txt` | `pip install -e ".[dev]"` (add `live` and `classifier` for live runs) |
+| `pip install -r requirements-classifier.txt` | `pip install -e ".[train]"` |
+| `python -m pytest tests` | `pytest` |
+| `python scripts/reproduce.py` | `pickspin reproduce` |
+| `python src/pickspin/simulate.py ...` | `pickspin simulate ...` |
+| `python src/pickspin/run_live.py ...` | `pickspin live ...` |
+| `python src/baseline/run_static_baseline.py ...` | `pickspin baseline run ...` |
+| `python src/baseline/llm_judge.py [benchmark ...]` | `pickspin baseline judge [benchmark ...]` |
+| `python src/classifier/generate_labels.py` | `pickspin classifier labels` |
+| `python src/classifier/train_distilbert.py` | `pickspin classifier train` |
+| `python src/classifier/evaluate.py` | `pickspin classifier evaluate` |
+| `python src/recorded_run/run_live.py ...` | `python legacy/recorded_run/run_live.py ...` |
 
 ## Reproduce
 
-### Paper tables and figures from the traces (no GPU, about 10 seconds)
+### Paper tables and figures from the traces (no GPU, about 5 seconds)
 
 ```bash
-python scripts/reproduce.py
+pickspin reproduce
 ```
 
-This writes to `results/`:
+This writes to `results/` (or to `--out DIR`):
 
 - `static_baseline_summary.csv`, `static_baseline_per_benchmark_accuracy.csv`: Sec. VII-A and Fig. 2
 - `table1_routing.csv`: Table I
@@ -80,19 +120,21 @@ This writes to `results/`:
 - `figures/fig2a_throughput.png`, `figures/fig2b_latency.png`, `figures/fig3_thompson.png`
 - `verification.csv`: each value next to the one printed in the paper
 
-It prints the comparison and exits non-zero if any value differs.
+It prints the comparison and exits non-zero if any value differs. The tables come out byte-identical to the committed
+ones. The figures also depend on the plotting libraries: the committed ones were drawn with matplotlib 3.10.8 and
+Pillow 11.3.0, and other versions render them slightly differently.
 
-### Simulation (no GPU, about 10 minutes)
+### Simulation (no GPU)
 
 ```bash
-python src/pickspin/simulate.py                                   # 250 closed-loop clients
-python src/pickspin/simulate.py --arrival-rate 8 4 2 1 0.5 0.25    # Poisson arrivals, queries per second
+pickspin simulate                                    # 250 closed-loop clients, about 30 seconds
+pickspin simulate --arrival-rate 8 4 2 1 0.5 0.25    # Poisson arrivals, queries per second, about 3 minutes
 ```
 
-The simulator runs the code in `src/pickspin` unchanged on a simulated clock. A query routed to a model takes the
-latency and success recorded for that query on that model in the static baseline, and its correctness is the judge
-label. Cold starts take the per-model time of Eq. 5, loads that overlap share 1.2 GB/s, and queries for a model that
-is loading wait for it. Each load is run with five seeds for four policies:
+The simulator runs Pick and Spin (`src/pickspin/pick/`, `src/pickspin/spin/`) unchanged on a simulated clock. A
+query routed to a model takes the latency and success recorded for that query on that model in the static baseline,
+and its correctness is the judge label. Cold starts take the per-model time of Eq. 5, loads that overlap share
+1.2 GB/s, and queries for a model that is loading wait for it. Each load is run with five seeds for four policies:
 
 - `pick-and-spin`: scale to zero; Pick scores Spin's latency, including the cold-start time of a cold model
 - `pick-and-spin-observed`: scale to zero; Pick scores the mean latency it has observed, cold-start waits included
@@ -102,7 +144,7 @@ is loading wait for it. Each load is run with five seeds for four policies:
 Results go to `results/simulation/<load>/` (per-seed summary, per model, cold starts per tier; `--write-queries`
 adds a per-query trace) and `results/simulation/overview.csv`, which averages the seeds and compares each policy's
 GPU-hours with the static deployment. Tiers come from `data/query_tiers.csv.gz`, the hybrid classifier's output for
-every query; `--reclassify` recomputes it with the trained DistilBERT.
+every query; `--reclassify` recomputes it with the trained DistilBERT (`classifier` extra).
 
 A model in the simulator serves any number of queries at once with their recorded latencies; `--max-concurrency`
 caps that.
@@ -110,15 +152,17 @@ caps that.
 ### Classifier labels and DistilBERT (GPU recommended)
 
 ```bash
-pip install -r requirements-classifier.txt
-python src/classifier/generate_labels.py   # writes data/classifier/{train,val}.jsonl
-python src/classifier/train_distilbert.py  # writes models/distilbert-complexity-classifier
+pip install -e ".[train]"
+pickspin classifier labels     # writes data/classifier/{train,val}.jsonl
+pickspin classifier train      # writes models/distilbert-complexity-classifier
+pickspin classifier evaluate   # writes results/classifier/evaluation.json
 ```
 
-`generate_labels.py` labels each query with the smallest model group the judge marks correct: SIMPLE (1B to 3B),
+`classifier labels` labels each query with the smallest model group the judge marks correct: SIMPLE (1B to 3B),
 MEDIUM (7B to 14B) or COMPLEX (Gemma-3-27B, Llama-3-70B, Kimi-K2, or no model correct), then splits 80/20 into
-24,815 training and 6,204 validation queries. `train_distilbert.py` fine-tunes distilbert-base-uncased on them, and
-`evaluate.py` reports the accuracy of the keyword lists, DistilBERT and the hybrid classifier on the validation split.
+24,815 training and 6,204 validation queries. `classifier train` fine-tunes distilbert-base-uncased on them, and
+`classifier evaluate` reports the accuracy of the keyword lists, DistilBERT and the hybrid classifier on the
+validation split.
 
 The trained classifier is on Hugging Face:
 
@@ -139,34 +183,117 @@ helm install pick-and-spin deploy/helm/pick-and-spin -n pick-and-spin \
 ```
 
 Every Deployment starts at zero replicas. Build the router image (`deploy/Dockerfile`, after training or copying the
-classifier into `models/`), set it in `deploy/router-job.yaml` and start the Job, which runs as the ServiceAccount the
-chart creates and is allowed to scale the model Deployments:
+classifier into `models/`), set it in `deploy/router-job.yaml` and start the Job. It runs `pickspin live` as the
+ServiceAccount the chart creates, which is allowed to scale the model Deployments:
 
 ```bash
 docker build -f deploy/Dockerfile -t <registry>/pick-and-spin-router . && docker push <registry>/pick-and-spin-router
 kubectl -n pick-and-spin apply -f deploy/router-job.yaml
 ```
 
-`run_live.py` scales every model to zero, routes the queries with 250 workers, and writes
+`pickspin live` scales every model to zero, routes the queries with 250 workers, and writes
 `results/live/pick_spin_<time>.jsonl` and a summary with the GPU-hours, utilization and cold starts that Spin
 measured. `--static` keeps every model running instead (install the chart with `--set startReplicas=1`), and
-`--limit 100` gives a quick check. The static baseline and the judge:
+`--limit 100` gives a quick check. Outside the image it needs the `live` and `classifier` extras. The static
+baseline and the judge:
 
 ```bash
-python src/baseline/run_static_baseline.py --endpoints deploy/endpoints.example.json   # 9 x 31,019 runs
-cp .env.example .env    # set JUDGE_API_BASE, JUDGE_API_KEY, JUDGE_MODEL
-python src/baseline/llm_judge.py
+pickspin baseline run --endpoints deploy/endpoints.example.json   # 9 x 31,019 runs
+cp .env.example .env              # set JUDGE_API_BASE, JUDGE_API_KEY, JUDGE_MODEL
+set -a; . ./.env; set +a          # export them
+pickspin baseline judge
 ```
+
+## Package and paper
+
+| Paper | Code in `src/pickspin/` |
+|---|---|
+| Hybrid classifier: keyword lists, then DistilBERT (Eq. 1) | `pick/classifier.py`, `pick/distilbert.py` |
+| Beta posteriors, HTS blend and the routing score (Eqs. 2-4) | `pick/sampler.py`, `pick/router.py` |
+| Spin's COLD/LOADING/WARM lifecycle, scale to zero, GPU accounting (Sec. V) | `spin/lifecycle.py` |
+| Cold-start time with loads sharing the storage bandwidth (Eq. 5) | `spin/storage.py` |
+| Queries waiting for a model that is loading (Eq. 6) | `simulation/engine.py` (simulated clock), `live/runner.py` (cluster) |
+| The nine models, the tiers and the parameters (Sec. VI-A) | `config.py` |
+| Tables I and II, Figs. 2 and 3, and the comparison with the paper (Sec. VII) | `paper/` |
+
+The rest of the package runs the experiments:
+
+- `simulation/`: the trace-driven simulator: the four policies, its inputs (traces and tier cache), the event loop
+  and the CSV outputs
+- `live/`: the live runner, its vLLM client and the Kubernetes actuator that scales the model Deployments
+- `baseline/`: the static baseline and the LLM judge, with the prompts that produced the released labels
+- `training/`: DistilBERT training labels, fine-tuning and evaluation
+- `cli/`: the `pickspin` command; `paths.py` holds the repository layout and `data.py` reads the query file
+
+## Layout
+
+```
+data/queries.jsonl.gz           the 31,019 prompts from 8 benchmarks, as sent to the models
+data/query_tiers.csv.gz         the hybrid classifier's tier for every prompt (input to the simulator)
+results/traces/                 experiment traces (no model responses)
+  static_baseline.csv.gz        every query on every model: success, latency, token counts
+  judgments.csv.gz              correct/incorrect label per (query, model) from the judge
+  pick_spin_routed.csv.gz       the routed run: tier, chosen model, latency, cold-start flag, in arrival order
+results/classifier/             label counts of the DistilBERT training data
+src/pickspin/                   the pickspin package and command (see Package and paper)
+legacy/recorded_run/            the runner that recorded results/traces/pick_spin_routed.csv.gz (see Results)
+deploy/                         Helm chart (nine vLLM Deployments, router RBAC), endpoint map, router Job and image
+tests/unit/                     hermetic unit tests
+tests/integration/              tests on the released data and against local stub servers
+tests/data/golden/              digests of the version 1.1.0 simulator's outputs
+scripts/make_goldens.py         regenerates those digests from tag v1.1.0
+```
+
+`legacy/recorded_run/` is kept byte for byte as it ran: its files are identical to `src/pickspin/` at tag `v1.0.0`,
+and a test checks their git blob ids. It is not part of the package and is excluded from linting, type checking,
+packaging and tests; `legacy/README.md` explains how it differs from the package and how to run it.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pre-commit install                     # ruff and file checks on every commit
+pytest tests/unit                      # hermetic unit tests, about 10 seconds
+pytest -m "not slow"                   # plus the integration tests (released data, local stub servers), about 30 s
+pytest -m slow                         # full-dataset runs: the simulator goldens (about a minute) and DistilBERT
+ruff check . && ruff format --check .
+mypy                                   # strict, over src/pickspin
+```
+
+The tests run against the installed package. The integration tests read `data/` and `results/` from the checkout,
+skip without them, and write only to temporary directories. The DistilBERT test runs only with the `classifier`
+extra and the trained model in `models/`.
+
+The package keeps every number of version 1.1.0. `tests/data/golden/` holds SHA-256 digests of every output of the
+1.1.0 simulator for three configurations (the default closed-loop grid, two Poisson rates, and a stress run with a
+10 s cooldown and at most 8 queries per model), and full-precision fingerprints of four runs.
+`tests/integration/test_simulation_golden.py` reruns them with `pickspin simulate` and must match bit for bit.
+Bit-exact results depend on the CPython minor version and on the platform's math library, so the committed goldens
+(Windows, CPython 3.12) are compared only there. Elsewhere the test skips unless `PICKSPIN_GOLDEN_DIR` names goldens
+generated on that machine from tag `v1.1.0`, as the CI golden job does:
+
+```bash
+git worktree add ../pick-and-spin-v1.1.0 v1.1.0
+python scripts/make_goldens.py --baseline ../pick-and-spin-v1.1.0 --out ../golden
+PICKSPIN_GOLDEN_DIR=../golden pytest -m slow tests/integration/test_simulation_golden.py
+```
+
+Never regenerate the goldens, or the committed `results/*.csv`, from the code under test. A change that moves a
+number belongs in its own release, with a new baseline tag.
+
+CI (`.github/workflows/ci.yml`) runs ruff and mypy; the tests that are not slow on Linux with Python 3.11 to 3.13 and
+on Windows with 3.12; `pickspin reproduce` on a base install without extras, which must leave `results/*.csv`
+unchanged; the golden comparison against tag `v1.1.0`; and a package build.
 
 ## Results
 
-`scripts/reproduce.py` computes every value below from `results/traces/`. Each one equals the value in the paper;
+`pickspin reproduce` computes every value below from `results/traces/`. Each one equals the value in the paper;
 `results/verification.csv` lists all 84 comparisons.
 
-The routed trace was recorded with the runner kept in `src/recorded_run/`: keyword rules only (no DistilBERT), the 14B
+The routed trace was recorded with the runner kept in `legacy/recorded_run/`: keyword rules only (no DistilBERT), the 14B
 model in the medium tier, Pick scoring inference latency, cold starts recorded as a fixed per-model penalty while
 all nine servers kept running, and google/gemma-2-27b-it as the 27B server. The static baseline used Gemma-3-27B.
-Correctness comes from an LLM judge (gpt-oss-120b, prompts in `src/baseline/llm_judge.py`) applied to the static
+Correctness comes from an LLM judge (gpt-oss-120b, prompts in `src/pickspin/baseline/judge.py`) applied to the static
 baseline responses; a routed query is scored with the judge label of the model it was routed to (for the 27B server,
 the Gemma-3-27B label).
 

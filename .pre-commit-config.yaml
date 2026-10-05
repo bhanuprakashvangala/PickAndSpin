@@ -1,0 +1,23 @@
+# pip install -e ".[dev]" && pre-commit install
+# Hooks never rewrite the frozen provenance code (legacy/), the released data and committed outputs
+# (data/, results/, whose CSVs are CRLF), the git-ignored model, or the goldens (tests/data/).
+exclude: ^(legacy|data|results|models|tests/data)/
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+        # The Helm templates are Go templates, not plain YAML.
+        exclude: ^deploy/helm/.*/templates/
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files
