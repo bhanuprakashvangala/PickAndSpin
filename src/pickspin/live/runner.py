@@ -54,17 +54,19 @@ log = logging.getLogger(__name__)
 class LiveConfig:
     """Settings of a live run.
 
-    endpoints is the endpoint map (JSON), queries the benchmark prompts (gzipped JSON lines), out_dir
-    where the outputs go and model_dir the fine-tuned DistilBERT. namespace is the Kubernetes namespace
-    of the model Deployments. workers is the number of worker threads, each with one query in flight.
-    limit keeps the first N queries after the seeded shuffle; None or 0 keeps them all. max_tokens caps
-    each response. static keeps every model running instead of scaling to zero. latency_signal is what
-    Pick scores on, and seed seeds both the routing and the shuffle. cooldown_s is T_cooldown. api_key
-    is sent as a bearer token to vLLM and never appears in repr().
+        endpoints is the endpoint map (JSON), queries the benchmark prompts (gzipped JSON lines), out_dir
+        where the outputs go and model_dir the fine-tuned DistilBERT. namespace is the Kubernetes namespace
+        of the model Deployments. workers is the number of worker threads, each with one query in flight.
+        limit keeps the first N queries after the seeded shuffle; None or 0 keeps them all. max_tokens caps
+        each response. static keeps every model running instead of scaling to zero. latency_signal is what
+        Pick scores on, and seed seeds both the routing and the shuffle. cooldown_s is T_cooldown. api_key
+        is sent as a bearer token to vLLM and never appears in repr(). servers, when set, is a server file
+    (deploy/nautilus/servers.json): models then run as Jobs that a JobActuator creates and deletes instead
+    of Deployments that are scaled.
 
-    The last three fields are knobs for tests, and their defaults are the values a real run uses: the
-    reaper checks for idle models every reaper_interval_s seconds, the scale-down at the start polls
-    every scale_down_poll_s seconds, and progress is logged every progress_every completed queries.
+        The last three fields are knobs for tests, and their defaults are the values a real run uses: the
+        reaper checks for idle models every reaper_interval_s seconds, the scale-down at the start polls
+        every scale_down_poll_s seconds, and progress is logged every progress_every completed queries.
     """
 
     endpoints: Path
@@ -80,6 +82,7 @@ class LiveConfig:
     seed: int = 0
     cooldown_s: float = DEFAULT_SPIN.cooldown_s
     api_key: str | None = field(default=None, repr=False)
+    servers: Path | None = None
     reaper_interval_s: float = 5.0
     scale_down_poll_s: float = 2.0
     progress_every: int = 2000
@@ -331,6 +334,10 @@ def run_live(
     headers = bearer_headers(config.api_key)
     if config.static:
         actuator = None
+    elif actuator is None and config.servers is not None:
+        from pickspin.live.jobs import JobActuator, load_servers
+
+        actuator = JobActuator(load_servers(config.servers), endpoints, config.namespace)
     elif actuator is None:
         actuator = KubernetesActuator(endpoints, config.namespace)
     spin = Spin(

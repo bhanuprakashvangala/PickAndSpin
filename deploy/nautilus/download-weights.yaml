@@ -1,0 +1,40 @@
+# Downloads the weights of the nine models into the shared cache once, so that cold starts in the
+# measured runs load from Ceph rather than from the internet. CPU only.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bhanu-pickspin-download-2
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 14400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: download
+        image: python:3.11-slim
+        command: ["sh", "-c"]
+        args:
+        - |
+          set -e
+          pip install --no-cache-dir -q "huggingface_hub[hf_transfer]>=0.25"
+          export HF_HUB_ENABLE_HF_TRANSFER=1
+          for m in meta-llama/Llama-3.2-1B-Instruct Qwen/Qwen2.5-1.5B-Instruct google/gemma-2-2b-it \
+                   meta-llama/Llama-3.2-3B-Instruct Qwen/Qwen2.5-7B-Instruct meta-llama/Llama-3.1-8B-Instruct \
+                   google/gemma-2-9b-it Qwen/Qwen2.5-14B-Instruct google/gemma-3-27b-it; do
+            echo "== $m"
+            python -c "from huggingface_hub import snapshot_download; snapshot_download('$m', allow_patterns=['*.json','*.safetensors','*.model','*.txt','tokenizer*'])"
+          done
+          du -sh /cache/hub
+        env:
+        - {name: HF_HOME, value: /cache}
+        - name: HF_TOKEN
+          valueFrom: {secretKeyRef: {name: bhanu-pickspin-hf, key: HF_TOKEN}}
+        resources:
+          requests: {cpu: "4", memory: 8Gi}
+          limits: {cpu: "4", memory: 8Gi}
+        volumeMounts:
+        - {name: hf-cache, mountPath: /cache}
+      volumes:
+      - name: hf-cache
+        persistentVolumeClaim: {claimName: bhanu-pickspin-hf-cache}

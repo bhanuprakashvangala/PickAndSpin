@@ -1,0 +1,18 @@
+# Shared storage for the Nautilus runs: model weights (read by every server Job) and run results.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bhanu-pickspin-hf-cache
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: rook-cephfs
+  resources: {requests: {storage: 300Gi}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bhanu-pickspin-results
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: rook-cephfs
+  resources: {requests: {storage: 20Gi}}

@@ -1,0 +1,29 @@
+# The router (pickspin live --servers) creates and deletes the model server Jobs and reads their pods.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bhanu-pickspin-router
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bhanu-pickspin-router
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bhanu-pickspin-router
+subjects:
+  - kind: ServiceAccount
+    name: bhanu-pickspin-router
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bhanu-pickspin-router

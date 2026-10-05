@@ -1,0 +1,213 @@
+{
+ "apiVersion": "v1",
+ "kind": "List",
+ "items": [
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-llama32-1b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama32-1b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama32-1b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-qwen25-1-5b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-1-5b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-1-5b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-gemma2-2b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma2-2b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma2-2b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-llama32-3b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama32-3b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama32-3b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-qwen25-7b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-7b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-7b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-llama31-8b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama31-8b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama31-8b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-gemma2-9b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma2-9b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma2-9b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-qwen25-14b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-14b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-14b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-gemma3-27b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma3-27b"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma3-27b"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  }
+ ]
+}

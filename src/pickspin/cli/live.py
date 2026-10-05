@@ -109,6 +109,13 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help="the endpoint map: each model's base_url, served model and Deployment "
         "(default: $PS_ENDPOINTS, else <root>/deploy/endpoints.example.json)",
     )
+    paths.add_argument(
+        "--servers",
+        type=Path,
+        metavar="FILE",
+        help="run each model as a Job described in this server file (deploy/nautilus/servers.json) instead of "
+        "scaling Deployments; for clusters such as NRP Nautilus that do not allow GPU Deployments",
+    )
     paths.add_argument("--out", type=Path, metavar="DIR", help="output directory (default: <root>/results/live)")
     paths.add_argument(
         "--queries", type=Path, metavar="FILE", help="the benchmark queries (default: <root>/data/queries.jsonl.gz)"
@@ -132,6 +139,8 @@ def run(args: argparse.Namespace) -> int:
     require_file(endpoints, "endpoint map")
     require_file(queries, "queries file")
     require_file(model_dir, "DistilBERT classifier")
+    if args.servers is not None:
+        require_file(args.servers, "server file")
 
     from pickspin.live.runner import LiveConfig, run_live
 
@@ -149,6 +158,7 @@ def run(args: argparse.Namespace) -> int:
         seed=args.seed,
         cooldown_s=args.cooldown,
         api_key=os.environ.get("VLLM_API_KEY"),
+        servers=args.servers,
     )
     log.debug("%s", config)  # the API key is not part of the repr
     run_live(config)

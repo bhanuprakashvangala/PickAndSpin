@@ -1,0 +1,1170 @@
+{
+ "apiVersion": "v1",
+ "kind": "List",
+ "items": [
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-llama32-1b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama32-1b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-llama32-1b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=meta-llama/Llama-3.2-1B-Instruct",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=1"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "4",
+          "memory": "16Gi",
+          "nvidia.com/gpu": 1
+         },
+         "limits": {
+          "cpu": "4",
+          "memory": "16Gi",
+          "nvidia.com/gpu": 1
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-qwen25-1-5b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-1-5b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-qwen25-1-5b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=Qwen/Qwen2.5-1.5B-Instruct",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=1"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "4",
+          "memory": "16Gi",
+          "nvidia.com/gpu": 1
+         },
+         "limits": {
+          "cpu": "4",
+          "memory": "16Gi",
+          "nvidia.com/gpu": 1
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-gemma2-2b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma2-2b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-gemma2-2b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=google/gemma-2-2b-it",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=1"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "4",
+          "memory": "16Gi",
+          "nvidia.com/gpu": 1
+         },
+         "limits": {
+          "cpu": "4",
+          "memory": "16Gi",
+          "nvidia.com/gpu": 1
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-llama32-3b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama32-3b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-llama32-3b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=meta-llama/Llama-3.2-3B-Instruct",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=1"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "4",
+          "memory": "24Gi",
+          "nvidia.com/gpu": 1
+         },
+         "limits": {
+          "cpu": "4",
+          "memory": "24Gi",
+          "nvidia.com/gpu": 1
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-qwen25-7b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-7b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-qwen25-7b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=Qwen/Qwen2.5-7B-Instruct",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=1"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "4",
+          "memory": "32Gi",
+          "nvidia.com/gpu": 1
+         },
+         "limits": {
+          "cpu": "4",
+          "memory": "32Gi",
+          "nvidia.com/gpu": 1
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-llama31-8b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-llama31-8b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-llama31-8b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=meta-llama/Llama-3.1-8B-Instruct",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=1"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "4",
+          "memory": "32Gi",
+          "nvidia.com/gpu": 1
+         },
+         "limits": {
+          "cpu": "4",
+          "memory": "32Gi",
+          "nvidia.com/gpu": 1
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-gemma2-9b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma2-9b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-gemma2-9b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-L40",
+              "NVIDIA-RTX-A6000",
+              "NVIDIA-L40S"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=google/gemma-2-9b-it",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=1"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "4",
+          "memory": "40Gi",
+          "nvidia.com/gpu": 1
+         },
+         "limits": {
+          "cpu": "4",
+          "memory": "40Gi",
+          "nvidia.com/gpu": 1
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-qwen25-14b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-14b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-qwen25-14b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-L40",
+              "NVIDIA-RTX-A6000",
+              "NVIDIA-L40S"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=Qwen/Qwen2.5-14B-Instruct",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=1"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "4",
+          "memory": "48Gi",
+          "nvidia.com/gpu": 1
+         },
+         "limits": {
+          "cpu": "4",
+          "memory": "48Gi",
+          "nvidia.com/gpu": 1
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "bhanu-pickspin-gemma3-27b",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-gemma3-27b"
+    }
+   },
+   "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 21600,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "pickspin-server",
+       "model": "bhanu-pickspin-gemma3-27b"
+      }
+     },
+     "spec": {
+      "restartPolicy": "Never",
+      "affinity": {
+       "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+         "nodeSelectorTerms": [
+          {
+           "matchExpressions": [
+            {
+             "key": "nvidia.com/gpu.product",
+             "operator": "In",
+             "values": [
+              "NVIDIA-L40",
+              "NVIDIA-RTX-A6000",
+              "NVIDIA-L40S"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "containers": [
+       {
+        "name": "vllm",
+        "image": "vllm/vllm-openai:v0.8.5",
+        "args": [
+         "--model=google/gemma-3-27b-it",
+         "--port=8000",
+         "--max-model-len=4096",
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=2"
+        ],
+        "env": [
+         {
+          "name": "HF_HOME",
+          "value": "/cache"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "HF_TOKEN",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "huggingface-secret",
+            "key": "HF_TOKEN",
+            "optional": true
+           }
+          }
+         }
+        ],
+        "ports": [
+         {
+          "containerPort": 8000
+         }
+        ],
+        "readinessProbe": {
+         "httpGet": {
+          "path": "/health",
+          "port": 8000
+         },
+         "periodSeconds": 5,
+         "failureThreshold": 600
+        },
+        "resources": {
+         "requests": {
+          "cpu": "8",
+          "memory": "96Gi",
+          "nvidia.com/gpu": 2
+         },
+         "limits": {
+          "cpu": "8",
+          "memory": "96Gi",
+          "nvidia.com/gpu": 2
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "hf-cache",
+          "mountPath": "/cache"
+         },
+         {
+          "name": "shm",
+          "mountPath": "/dev/shm"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "hf-cache",
+        "persistentVolumeClaim": {
+         "claimName": "bhanu-pickspin-hf-cache"
+        }
+       },
+       {
+        "name": "shm",
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "8Gi"
+        }
+       }
+      ]
+     }
+    }
+   }
+  }
+ ]
+}

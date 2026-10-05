@@ -1,0 +1,47 @@
+# Runs `pickspin live` on Nautilus (CPU only). RUN_NAME, LIMIT and EXTRA_ARGS select the run:
+#   smoke test:   LIMIT=200      EXTRA_ARGS=""
+#   full run:     LIMIT=0        EXTRA_ARGS=""
+#   static run:   LIMIT=0        EXTRA_ARGS="--static"   (start every server first: kubectl apply -f jobs.json)
+# Results go to the bhanu-pickspin-results volume under /results/$RUN_NAME.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bhanu-pickspin-router-smoke
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 28800
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: bhanu-pickspin-router
+      containers:
+      - name: router
+        image: python:3.11
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          git clone -q --depth 1 -b "$GIT_REF" https://github.com/bhanuprakashvangala/PickAndSpin.git /app
+          cd /app
+          pip install -q --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q --no-cache-dir ".[live,classifier]"
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('bhanuprakashvangala/pickspin-distilbert-complexity', local_dir='models/distilbert-complexity-classifier')"
+          pickspin live --servers deploy/nautilus/servers.json --endpoints deploy/nautilus/endpoints.json \
+            --namespace "$NAMESPACE" --workers "$WORKERS" --limit "$LIMIT" --out "/results/$RUN_NAME" $EXTRA_ARGS
+          ls -l "/results/$RUN_NAME"
+        env:
+        - {name: GIT_REF, value: nautilus}
+        - {name: RUN_NAME, value: smoke-200}
+        - {name: LIMIT, value: "200"}
+        - {name: WORKERS, value: "20"}
+        - {name: EXTRA_ARGS, value: ""}
+        - name: NAMESPACE
+          valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+        resources:
+          requests: {cpu: "4", memory: 8Gi}
+          limits: {cpu: "4", memory: 8Gi}
+        volumeMounts:
+        - {name: results, mountPath: /results}
+      volumes:
+      - name: results
+        persistentVolumeClaim: {claimName: bhanu-pickspin-results}
