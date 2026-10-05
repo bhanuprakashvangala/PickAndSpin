@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Table I and `verification.csv` label the 2,635 queries "Timed out", as the paper does.
+- `results/classifier/label_stats.json` is no longer committed; the label test checks a SHA-256 of it instead
+  (`tests/data/label_stats.sha256`), and `pickspin classifier labels` still writes it.
+
 ## 2.0.0
 
 Pick and Spin is now an installable Python package, `pick-and-spin` (imported as `pickspin`), with one command,

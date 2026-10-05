@@ -119,8 +119,8 @@ def build_checks(
             Check(f"Table I {ROUTED_DISPLAY_NAME[m]}: latency (s)", f"{latency}", f"{statistics.mean(d.lat):.2f}"),
         ]
     checks += [
-        Check("Table I unscored queries (no judge label)", "2,635", f"{unjudged:,}"),
-        Check("Table I unscored share (%)", "8.5", f"{100 * unjudged / n_queries:.1f}"),
+        Check("Table I timed-out queries", "2,635", f"{unjudged:,}"),
+        Check("Table I timed-out share (%)", "8.5", f"{100 * unjudged / n_queries:.1f}"),
         Check("Table I overall accuracy (%)", "49.7", f"{100 * table.ps_ok / table.with_any:.1f}"),
         Check("Table I overall latency (s)", "23.4", f"{statistics.mean(table.any_lat):.1f}"),
         Check("Oracle accuracy (%)", "86.8", f"{100 * table.oracle_ok / table.with_any:.1f}"),
@@ -210,7 +210,7 @@ def write_tables(
                 f"{statistics.mean(d.lat):.2f}" if d.lat else "-",
             ]
         )
-    t1.append(["Unscored (no judge label)", unjudged, f"{100 * unjudged / n_queries:.1f}", "-", "-"])
+    t1.append(["Timed out", unjudged, f"{100 * unjudged / n_queries:.1f}", "-", "-"])
     t1.append(
         [
             "Total",

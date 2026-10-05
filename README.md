@@ -160,7 +160,7 @@ pickspin classifier evaluate   # writes results/classifier/evaluation.json
 
 `classifier labels` labels each query with the smallest model group the judge marks correct: SIMPLE (1B to 3B),
 MEDIUM (7B to 14B) or COMPLEX (Gemma-3-27B, Llama-3-70B, Kimi-K2, or no model correct), then splits 80/20 into
-24,815 training and 6,204 validation queries. `classifier train` fine-tunes distilbert-base-uncased on them, and
+training and validation sets. `classifier train` fine-tunes distilbert-base-uncased on them, and
 `classifier evaluate` reports the accuracy of the keyword lists, DistilBERT and the hybrid classifier on the
 validation split.
 
@@ -234,7 +234,6 @@ results/traces/                 experiment traces (no model responses)
   static_baseline.csv.gz        every query on every model: success, latency, token counts
   judgments.csv.gz              correct/incorrect label per (query, model) from the judge
   pick_spin_routed.csv.gz       the routed run: tier, chosen model, latency, cold-start flag, in arrival order
-results/classifier/             label counts of the DistilBERT training data
 src/pickspin/                   the pickspin package and command (see Package and paper)
 legacy/recorded_run/            the runner that recorded results/traces/pick_spin_routed.csv.gz (see Results)
 deploy/                         Helm chart (nine vLLM Deployments, router RBAC), endpoint map, router Job and image
@@ -333,10 +332,8 @@ Routed run (Table I). Latency includes the cold-start penalty.
 | Gemma-2-9B | 499 | 1.6 | 73.5 | 30.52 |
 | Qwen2.5-14B | 347 | 1.1 | 72.0 | 44.63 |
 | Gemma-2-27B | 633 | 2.0 | 75.2 | 13.28 |
-| Unscored (no judge label) | 2,635 | 8.5 | - | - |
+| Timed out | 2,635 | 8.5 | - | - |
 | Total | 31,019 | 100 | 49.7 | 23.4 |
-
-The Total accuracy and latency are over the 29,781 queries that have a label for at least one of the nine models.
 
 | Routed run | |
 |---|---|

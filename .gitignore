@@ -8,7 +8,7 @@ models/
 *.safetensors
 *.bin
 results/simulation/
-results/classifier/evaluation.json
+results/classifier/
 build/
 dist/
 *.egg-info/

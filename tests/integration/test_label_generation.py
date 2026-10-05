@@ -1,12 +1,14 @@
 """The DistilBERT training labels regenerate exactly from the released judge labels and queries.
 
 generate_labeled_dataset runs once on the released data, into a temporary directory. Its label_stats.json
-must equal the committed results/classifier/label_stats.json, and its train/validation split must equal
+must match the SHA-256 in tests/data/label_stats.sha256 (taken with LF line ends) and agree with the stats the
+function returns, and its train/validation split must equal
 the local data/classifier/{train,val}.jsonl when those git-ignored files are present. The files are
 written in text mode, so their line ends are the platform's; comparisons normalise line ends on both
 sides, as a checkout may hold the committed file with either.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +21,7 @@ from pickspin.training.labels import generate_labeled_dataset
 
 SPLIT_LINES = {"train.jsonl": 24_815, "val.jsonl": 6_204}  # the released 80/20 split of 31,019 queries
 RECORD_KEYS = ["id", "text", "label", "benchmark"]
+LABEL_STATS_SHA256 = Path(__file__).parents[1] / "data" / "label_stats.sha256"
 
 
 @pytest.fixture(scope="module")
@@ -35,16 +38,14 @@ def normalised(path: Path) -> bytes:
     return path.read_bytes().replace(b"\r\n", b"\n")
 
 
-def test_label_stats_equal_the_committed_ones(labels, released_data):
+def test_label_stats_match_the_recorded_digest(labels):
     out, stats = labels
-    committed = released_data / "results" / "classifier" / "label_stats.json"
     produced = out / "label_stats.json"
 
-    expected = json.loads(committed.read_text(encoding="utf-8"))
-    assert json.loads(produced.read_text(encoding="utf-8")) == expected
-    assert stats == expected
-    # The same text too: key order, indent=2 and no newline at the end.
-    assert normalised(produced) == normalised(committed)
+    assert json.loads(produced.read_text(encoding="utf-8")) == stats
+    # The same text as the released file: key order, indent=2 and no newline at the end.
+    expected = LABEL_STATS_SHA256.read_text(encoding="utf-8").split()[0]
+    assert hashlib.sha256(normalised(produced)).hexdigest() == expected
 
 
 def test_split_files_have_the_released_sizes_and_platform_line_ends(labels):

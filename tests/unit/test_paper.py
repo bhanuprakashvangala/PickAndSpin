@@ -61,8 +61,9 @@ ROUTED_HEADER = [
 ]  # fmt: skip
 
 # sha256 of the 84 '<claim>\t<paper value>' lines, joined by newlines, of results/verification.csv as
-# written by scripts/reproduce.py at tag v1.1.0.
-CLAIMS_SHA256 = "46aba73af1b32911e63c9ac49cb8f28b3a7cbd5a9be2bbf75c842b2afa0de8b0"
+# written by scripts/reproduce.py at tag v1.1.0, with the two Table I unscored claims renamed to the paper's
+# "timed out" wording. The paper values are unchanged.
+CLAIMS_SHA256 = "eb6d8c5f452e993d29d16594900587802d122d6db5b546e3dbc07024ba8b1cdb"
 
 # A routed run of four queries and its judge labels.
 ROUTED = [
@@ -353,7 +354,7 @@ def test_write_tables_marks_models_without_scored_queries(tmp_path: Path) -> Non
     assert t1[1] == "Llama-3.2-1B,0,0.00,-,-"
     assert t1[9:] == [
         "Gemma-2-27B,3,37.50,33.3,2.33",
-        "Unscored (no judge label),5,62.5,-,-",
+        "Timed out,5,62.5,-,-",
         "Total,8,100,25.0,3.0",
         "",
     ]
@@ -449,7 +450,7 @@ def test_reproduce_writes_every_output(tmp_path: Path) -> None:
         "Gemma-2-9B,54,10.80,50.0,2.00\r\n"
         "Qwen2.5-14B,54,10.80,50.0,2.00\r\n"
         "Gemma-2-27B,54,10.80,50.0,2.00\r\n"
-        "Unscored (no judge label),10,2.0,-,-\r\n"
+        "Timed out,10,2.0,-,-\r\n"
         "Total,500,100,50.0,2.0\r\n"
     )
     assert text("table2_scored_routed_queries_by_size.csv") == (
