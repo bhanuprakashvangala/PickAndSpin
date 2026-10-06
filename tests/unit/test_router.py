@@ -164,3 +164,12 @@ def test_prefer_warm_routes_to_a_model_that_is_up_and_starts_one_only_when_none_
     assert {pick.select(Tier.SIMPLE, 3.0).model for _ in range(50)} == {warm}
     # ... and a tier with no model up chooses among all of its models.
     assert pick.select(Tier.COMPLEX, 3.0).model in TIERS[Tier.COMPLEX]
+
+
+def test_prefer_warm_opens_the_choice_again_when_a_load_is_overdue() -> None:
+    spin = Spin(cooldown_s=300, scale_to_zero=True, now=0.0, load_estimate=lambda model, now: 100.0)
+    stuck = TIERS[Tier.COMPLEX][0]
+    spin.request(stuck, 0.0)  # loading, expected to be ready at 100 s
+    pick = Pick(None, spin, rng=random.Random(0), prefer_warm=True)
+    assert {pick.select(Tier.COMPLEX, 150.0).model for _ in range(20)} == {stuck}  # within twice the estimate
+    assert {pick.select(Tier.COMPLEX, 250.0).model for _ in range(50)} == set(TIERS[Tier.COMPLEX])  # overdue

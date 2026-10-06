@@ -1,7 +1,8 @@
-# Runs `pickspin live` on Nautilus (CPU only). RUN_NAME, LIMIT and EXTRA_ARGS select the run:
+# Runs `pickspin live` on Nautilus (CPU only) with the paper's nine models (servers-paper.json). Stop the
+# gateway first: both manage the same server Jobs. RUN_NAME, LIMIT and EXTRA_ARGS select the run:
 #   smoke test:   LIMIT=200      EXTRA_ARGS=""
 #   full run:     LIMIT=0        EXTRA_ARGS=""
-#   static run:   LIMIT=0        EXTRA_ARGS="--static"   (start every server first: kubectl apply -f jobs.json)
+#   static run:   LIMIT=0        EXTRA_ARGS="--static"   (start every server first: kubectl apply -f jobs-paper.json)
 # Results go to the bhanu-pickspin-results volume under /results/$RUN_NAME.
 apiVersion: batch/v1
 kind: Job
@@ -26,7 +27,7 @@ spec:
           pip install -q --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
           pip install -q --no-cache-dir ".[live,classifier]"
           python -c "from huggingface_hub import snapshot_download; snapshot_download('bhanuprakashvangala/pickspin-distilbert-complexity', local_dir='models/distilbert-complexity-classifier')"
-          pickspin live --servers deploy/nautilus/servers.json --endpoints deploy/nautilus/endpoints.json \
+          pickspin live --servers deploy/nautilus/servers-paper.json --endpoints deploy/nautilus/endpoints-paper.json \
             --namespace "$NAMESPACE" --workers "$WORKERS" --limit "$LIMIT" --out "/results/$RUN_NAME" $EXTRA_ARGS
           ls -l "/results/$RUN_NAME"
         env:

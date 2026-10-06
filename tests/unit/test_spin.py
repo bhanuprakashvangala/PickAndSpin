@@ -90,6 +90,17 @@ def test_a_warm_model_whose_server_died_is_lost_even_while_busy() -> None:
     assert usage.busy_gpu_hours == pytest.approx(11.0 / 3600)
 
 
+def test_a_load_is_overdue_after_twice_its_expected_time() -> None:
+    spin = Spin(cooldown_s=300, scale_to_zero=True, now=0.0, load_estimate=lambda model, now: 100.0)
+    m = "llama3.2_1B"
+    assert not spin.overdue(m, 0.0)  # COLD
+    spin.request(m, 10.0)
+    assert not spin.overdue(m, 210.0)
+    assert spin.overdue(m, 210.5)
+    spin.loaded(m, 300.0)
+    assert not spin.overdue(m, 1000.0)  # WARM
+
+
 def test_static_deployment_holds_every_gpu() -> None:
     spin = Spin(scale_to_zero=False, now=0.0)
     assert all(spin.status(m) == WARM for m in MODELS)

@@ -7,11 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from pickspin.config import MODELS
+from pickspin.config import MODELS, Tier
 from pickspin.live.jobs import JobActuator, load_servers, render_endpoints, render_job, render_service
 
 REPO = Path(__file__).resolve().parents[2]
-SERVERS = REPO / "deploy" / "nautilus" / "servers.json"
+SERVERS = REPO / "deploy" / "nautilus" / "servers.json"  # the catalog the gateway serves
+PAPER = REPO / "deploy" / "nautilus" / "servers-paper.json"  # the paper's nine models
 
 
 @pytest.fixture
@@ -19,11 +20,19 @@ def servers():
     return load_servers(SERVERS)
 
 
-def test_server_file_covers_the_catalog_in_order(servers):
-    assert list(servers["models"]) == list(MODELS)
+def test_paper_server_file_covers_the_paper_pool_in_order():
+    paper = load_servers(PAPER)
+    assert list(paper["models"]) == list(MODELS)
+    assert {k: s.hf_id for k, s in paper["catalog"].items()} == {k: s.hf_id for k, s in MODELS.items()}
+
+
+@pytest.mark.parametrize("path", [SERVERS, PAPER], ids=["servers", "paper"])
+def test_server_files_name_every_server_and_cover_every_tier(path):
+    servers = load_servers(path)
     names = [spec["name"] for spec in servers["models"].values()]
     assert len(set(names)) == len(names)
     assert all(name.startswith("bhanu-pickspin-") for name in names)
+    assert {spec.tier for spec in servers["catalog"].values()} == set(Tier)
 
 
 def test_new_model_needs_its_figures(tmp_path):
@@ -82,7 +91,9 @@ def test_models_can_be_replaced(tmp_path):
     )
 
 
-def test_job_follows_nrp_rules(servers):
+@pytest.mark.parametrize("path", [SERVERS, PAPER], ids=["servers", "paper"])
+def test_job_follows_nrp_rules(path):
+    servers = load_servers(path)
     for key, spec in servers["models"].items():
         job = render_job(key, spec)
         assert job["kind"] == "Job"
@@ -92,7 +103,7 @@ def test_job_follows_nrp_rules(servers):
         res = container["resources"]
         assert res["requests"] == res["limits"]  # NRP: limits within 20% of requests
         assert res["limits"]["nvidia.com/gpu"] == spec["gpus"]
-        assert f"--model={MODELS[key].hf_id}" in container["args"]
+        assert f"--model={servers['catalog'][key].hf_id}" in container["args"]
         assert f"--tensor-parallel-size={spec['gpus']}" in container["args"]
         assert job["spec"]["activeDeadlineSeconds"] > 0
         assert "sleep" not in json.dumps(job)
@@ -111,12 +122,18 @@ def test_service_selects_the_job_pod(servers):
     assert service["spec"]["selector"].items() <= pod_labels.items()
 
 
-def test_endpoints_point_at_the_services(servers):
-    endpoints = render_endpoints(servers)
-    assert endpoints["gemma3_27B"]["base_url"] == "http://bhanu-pickspin-gemma3-27b:8000"
-    assert endpoints["gemma3_27B"]["deployment"] == "bhanu-pickspin-gemma3-27b"
-    committed = json.loads((REPO / "deploy" / "nautilus" / "endpoints.json").read_text(encoding="utf-8"))
-    assert committed == endpoints
+def test_endpoints_point_at_the_services():
+    paper = render_endpoints(load_servers(PAPER))
+    assert paper["gemma3_27B"]["base_url"] == "http://bhanu-pickspin-gemma3-27b:8000"
+    assert paper["gemma3_27B"]["deployment"] == "bhanu-pickspin-gemma3-27b"
+    for path, rendered in [
+        ("endpoints.json", render_endpoints(load_servers(SERVERS))),
+        ("endpoints-paper.json", paper),
+    ]:
+        assert json.loads((REPO / "deploy" / "nautilus" / path).read_text(encoding="utf-8")) == rendered
+    services = json.loads((REPO / "deploy" / "nautilus" / "services.json").read_text(encoding="utf-8"))["items"]
+    named = {service["metadata"]["name"] for service in services}
+    assert named == {e["deployment"] for e in [*paper.values(), *render_endpoints(load_servers(SERVERS)).values()]}
 
 
 class ApiException(Exception):  # noqa: N818 - mirrors kubernetes.client.exceptions.ApiException
@@ -162,6 +179,9 @@ class FakeCore:
         body = self.batch.jobs.get(label_selector.split("=", 1)[1])
         return SimpleNamespace(items=self.pods_of(body) if body else [])
 
+    def read_namespaced_pod_log(self, name, namespace, tail_lines):
+        return f"last {tail_lines} lines of {name}: CUDA error: no kernel image is available"
+
 
 def pod(phase="Pending", *, ready=False, unschedulable=False, terminated=None):
     conditions = []
@@ -171,7 +191,7 @@ def pod(phase="Pending", *, ready=False, unschedulable=False, terminated=None):
         conditions.append(SimpleNamespace(type="Ready", status="True", reason=None, last_transition_time=None))
     states = [SimpleNamespace(state=SimpleNamespace(terminated=terminated, running=None))] if terminated else []
     return SimpleNamespace(
-        metadata=SimpleNamespace(deletion_timestamp=None, creation_timestamp=None),
+        metadata=SimpleNamespace(name="pod-0", deletion_timestamp=None, creation_timestamp=None),
         status=SimpleNamespace(phase=phase, conditions=conditions, container_statuses=states, reason=None),
     )
 
@@ -225,13 +245,15 @@ def test_scale_replaces_a_job_that_has_ended(servers):
     assert actuator.alive("qwen2.5_7B")
 
 
-def test_wait_ready_fails_as_soon_as_the_server_stops(servers):
+def test_wait_ready_fails_as_soon_as_the_server_stops_and_logs_its_last_lines(servers, caplog):
     oom = SimpleNamespace(reason="OOMKilled", exit_code=137)
     actuator = make_actuator(servers, FakeBatch(), lambda body: [pod("Failed", terminated=oom)])
     actuator.scale("llama3.2_1B", 1)
     with pytest.raises(RuntimeError, match=r"its pod stopped: OOMKilled \(exit code 137\)"):
         actuator.wait_ready("llama3.2_1B", time.monotonic())
     assert actuator.measured == {}
+    assert "last 30 lines of pod-0: CUDA error" in caplog.text
+    assert "llama3.2_1B" not in actuator.placement  # a model with one placement stays in it
 
 
 def test_a_model_that_finds_no_node_moves_to_its_next_placement(tmp_path):
@@ -269,6 +291,6 @@ def test_a_model_that_finds_no_node_moves_to_its_next_placement(tmp_path):
 
 def test_load_estimate_uses_measurements(servers):
     actuator = make_actuator(servers, FakeBatch())
-    assert actuator.load_estimate("llama3.2_1B") == MODELS["llama3.2_1B"].cold_start_s
+    assert actuator.load_estimate("llama3.2_1B") == servers["catalog"]["llama3.2_1B"].cold_start_s
     actuator.measured["llama3.2_1B"] = [10.0, 20.0]
     assert actuator.load_estimate("llama3.2_1B") == 15.0

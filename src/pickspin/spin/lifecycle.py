@@ -295,6 +295,14 @@ class Spin:
             st.idle_since = now
             return True
 
+    def overdue(self, model: str, now: float) -> bool:
+        """Return True if the model is LOADING and has taken more than twice its expected load time."""
+        with self._lock:
+            st = self._states[model]
+            if st.status is not ModelState.LOADING or st.load_since is None or st.ready_eta is None:
+                return False
+            return now - st.load_since > 2 * (st.ready_eta - st.load_since)
+
     # --- what Pick sees ------------------------------------------------------------------------
     def latency_estimate(
         self, model: str, now: float, signal: LatencySignal | str = LatencySignal.SPIN

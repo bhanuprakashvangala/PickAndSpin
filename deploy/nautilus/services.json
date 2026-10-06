@@ -167,6 +167,52 @@
    "apiVersion": "v1",
    "kind": "Service",
    "metadata": {
+    "name": "bhanu-pickspin-qwen25-14b-awq",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-14b-awq"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-14b-awq"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "bhanu-pickspin-qwen25-32b-awq",
+    "labels": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-32b-awq"
+    }
+   },
+   "spec": {
+    "selector": {
+     "app": "pickspin-server",
+     "model": "bhanu-pickspin-qwen25-32b-awq"
+    },
+    "ports": [
+     {
+      "port": 8000,
+      "targetPort": 8000
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
     "name": "bhanu-pickspin-qwen25-14b",
     "labels": {
      "app": "pickspin-server",

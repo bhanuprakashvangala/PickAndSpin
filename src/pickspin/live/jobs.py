@@ -380,6 +380,20 @@ class JobActuator:
         """Return False if the model's server is gone for good (see failure)."""
         return self.failure(model) is None
 
+    def _log_tail(self, pods: list[Any], lines: int = 30) -> None:
+        """Log the last lines of a stopped server pod, so a failed load can be diagnosed once its Job is gone."""
+        for pod in pods:
+            if _pod_stopped(pod) is None:
+                continue
+            name = pod.metadata.name
+            try:
+                tail = self.core.read_namespaced_pod_log(name, self.namespace, tail_lines=lines)
+            except self._api_exception as e:
+                log.warning("Could not read the log of %s (HTTP %s)", name, e.status)
+                return
+            log.warning("Last lines of %s:\n%s", name, tail)
+            return
+
     def wait_ready(self, model: str, t0: float) -> float:
         """Block until the model's pod is ready and vLLM answers /health; return and record the load time.
 
@@ -394,6 +408,7 @@ class JobActuator:
                 break
             failure = self.failure(model, pods)
             if failure is not None:
+                self._log_tail(pods)
                 self._next_placement(model)
                 raise RuntimeError(f"{model} server failed: {failure}")
             if time.monotonic() - t0 > self.timeout_s:

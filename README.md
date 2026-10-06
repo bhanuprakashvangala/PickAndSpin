@@ -259,9 +259,16 @@ An entry may also set `env` (environment variables for the server), `extra_args`
 
 Nautilus does not allow Deployments that request GPUs, so each model server runs as a Job that the gateway creates
 and deletes (`src/pickspin/live/jobs.py`); only the CPU-only gateway is a Deployment. `deploy/nautilus/` holds
-everything: `storage.yaml` (weight cache and results volumes), `download-weights.yaml` (fetches the weights once, so
-cold starts read them from Ceph), `router-rbac.yaml` (lets the gateway and router manage the server Jobs),
-`services.json`, `gateway.yaml` and `router-job.yaml` (the benchmark replay with `pickspin live --servers`).
+everything: `storage.yaml` (weight cache and results volumes), `download-weights.yaml` (fetches the weights of every
+model in the server files, so cold starts read them from Ceph), `router-rbac.yaml` (lets the gateway and router
+manage the server Jobs), `services.json`, `gateway.yaml`, `replay-job.yaml` (a load test of the gateway with
+`pickspin replay`) and `router-job.yaml` (the benchmark replay with `pickspin live --servers`).
+
+There are two catalogs. `servers.json`, which the gateway serves, keeps every model on one GPU that is common on
+the cluster: the COMPLEX tier uses the AWQ builds of Qwen2.5-14B and Qwen2.5-32B, because 48 GB GPUs are rarely free.
+`servers-paper.json` holds the paper's nine models, with Qwen2.5-14B and Gemma-3-27B on 48 GB GPUs or several 24 GB
+ones, for `router-job.yaml`. After editing either file, run `python deploy/nautilus/render.py` and apply
+`services.json`.
 
 ```bash
 kubectl apply -f deploy/nautilus/storage.yaml -f deploy/nautilus/router-rbac.yaml
@@ -269,6 +276,7 @@ kubectl create secret generic <hf-secret> --from-literal=HF_TOKEN=...   # set it
 kubectl apply -f deploy/nautilus/download-weights.yaml
 kubectl apply -f deploy/nautilus/services.json -f deploy/nautilus/gateway.yaml
 kubectl port-forward svc/bhanu-pickspin-gateway 8080:8080   # then call http://localhost:8080 as above
+kubectl apply -f deploy/nautilus/replay-job.yaml            # optional: 200 benchmark queries through the gateway
 ```
 
 ## Package and paper

@@ -973,10 +973,10 @@
    "apiVersion": "batch/v1",
    "kind": "Job",
    "metadata": {
-    "name": "bhanu-pickspin-qwen25-14b-awq",
+    "name": "bhanu-pickspin-qwen25-14b",
     "labels": {
      "app": "pickspin-server",
-     "model": "bhanu-pickspin-qwen25-14b-awq"
+     "model": "bhanu-pickspin-qwen25-14b"
     }
    },
    "spec": {
@@ -986,7 +986,7 @@
      "metadata": {
       "labels": {
        "app": "pickspin-server",
-       "model": "bhanu-pickspin-qwen25-14b-awq"
+       "model": "bhanu-pickspin-qwen25-14b"
       }
      },
      "spec": {
@@ -1001,18 +1001,10 @@
              "key": "nvidia.com/gpu.product",
              "operator": "In",
              "values": [
-              "NVIDIA-A10",
-              "NVIDIA-GeForce-RTX-3090",
-              "NVIDIA-GeForce-RTX-4090",
-              "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
               "NVIDIA-L40S",
-              "NVIDIA-A40",
-              "NVIDIA-RTX-A5000",
-              "NVIDIA-RTX-5000-Ada-Generation",
-              "NVIDIA-RTX-A4000",
-              "NVIDIA-RTX-4000-Ada-Generation"
+              "NVIDIA-A40"
              ]
             }
            ]
@@ -1026,7 +1018,7 @@
         "name": "vllm",
         "image": "vllm/vllm-openai:v0.8.5",
         "args": [
-         "--model=Qwen/Qwen2.5-14B-Instruct-AWQ",
+         "--model=Qwen/Qwen2.5-14B-Instruct",
          "--port=8000",
          "--max-model-len=4096",
          "--gpu-memory-utilization=0.9",
@@ -1068,12 +1060,12 @@
         "resources": {
          "requests": {
           "cpu": "2",
-          "memory": "16Gi",
+          "memory": "32Gi",
           "nvidia.com/gpu": 1
          },
          "limits": {
           "cpu": "2",
-          "memory": "16Gi",
+          "memory": "32Gi",
           "nvidia.com/gpu": 1
          }
         },
@@ -1112,10 +1104,10 @@
    "apiVersion": "batch/v1",
    "kind": "Job",
    "metadata": {
-    "name": "bhanu-pickspin-qwen25-32b-awq",
+    "name": "bhanu-pickspin-gemma3-27b",
     "labels": {
      "app": "pickspin-server",
-     "model": "bhanu-pickspin-qwen25-32b-awq"
+     "model": "bhanu-pickspin-gemma3-27b"
     }
    },
    "spec": {
@@ -1125,7 +1117,7 @@
      "metadata": {
       "labels": {
        "app": "pickspin-server",
-       "model": "bhanu-pickspin-qwen25-32b-awq"
+       "model": "bhanu-pickspin-gemma3-27b"
       }
      },
      "spec": {
@@ -1140,13 +1132,10 @@
              "key": "nvidia.com/gpu.product",
              "operator": "In",
              "values": [
-              "NVIDIA-GeForce-RTX-3090",
-              "NVIDIA-GeForce-RTX-4090",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
               "NVIDIA-L40S",
-              "NVIDIA-A40",
-              "NVIDIA-RTX-5000-Ada-Generation"
+              "NVIDIA-A40"
              ]
             }
            ]
@@ -1160,12 +1149,11 @@
         "name": "vllm",
         "image": "vllm/vllm-openai:v0.8.5",
         "args": [
-         "--model=Qwen/Qwen2.5-32B-Instruct-AWQ",
+         "--model=google/gemma-3-27b-it",
          "--port=8000",
          "--max-model-len=4096",
-         "--gpu-memory-utilization=0.93",
-         "--tensor-parallel-size=1",
-         "--max-num-seqs=32"
+         "--gpu-memory-utilization=0.9",
+         "--tensor-parallel-size=2"
         ],
         "env": [
          {
@@ -1202,14 +1190,14 @@
         },
         "resources": {
          "requests": {
-          "cpu": "2",
-          "memory": "32Gi",
-          "nvidia.com/gpu": 1
+          "cpu": "3",
+          "memory": "64Gi",
+          "nvidia.com/gpu": 2
          },
          "limits": {
-          "cpu": "2",
-          "memory": "32Gi",
-          "nvidia.com/gpu": 1
+          "cpu": "3",
+          "memory": "64Gi",
+          "nvidia.com/gpu": 2
          }
         },
         "volumeMounts": [

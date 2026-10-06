@@ -34,14 +34,14 @@
   "model": "google/gemma-2-9b-it",
   "deployment": "bhanu-pickspin-gemma2-9b"
  },
- "qwen2.5_14B_awq": {
-  "base_url": "http://bhanu-pickspin-qwen25-14b-awq:8000",
-  "model": "Qwen/Qwen2.5-14B-Instruct-AWQ",
-  "deployment": "bhanu-pickspin-qwen25-14b-awq"
+ "qwen2.5_14B": {
+  "base_url": "http://bhanu-pickspin-qwen25-14b:8000",
+  "model": "Qwen/Qwen2.5-14B-Instruct",
+  "deployment": "bhanu-pickspin-qwen25-14b"
  },
- "qwen2.5_32B_awq": {
-  "base_url": "http://bhanu-pickspin-qwen25-32b-awq:8000",
-  "model": "Qwen/Qwen2.5-32B-Instruct-AWQ",
-  "deployment": "bhanu-pickspin-qwen25-32b-awq"
+ "gemma3_27B": {
+  "base_url": "http://bhanu-pickspin-gemma3-27b:8000",
+  "model": "google/gemma-3-27b-it",
+  "deployment": "bhanu-pickspin-gemma3-27b"
  }
 }

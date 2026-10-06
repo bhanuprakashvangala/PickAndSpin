@@ -1,4 +1,5 @@
-# The router (pickspin live --servers) creates and deletes the model server Jobs and reads their pods.
+# The gateway (pickspin serve) and the router (pickspin live --servers) create and delete the model server
+# Jobs and read their pods, and the logs of a server that failed.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -13,7 +14,7 @@ rules:
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
-    resources: ["pods"]
+    resources: ["pods", "pods/log"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

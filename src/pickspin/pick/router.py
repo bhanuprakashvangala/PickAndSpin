@@ -37,9 +37,11 @@ class Pick:
     known in advance, as in the simulator, which calls select() directly. The sampler's lock guards the
     posteriors, so the live runner's worker threads can share one Pick.
 
-    With prefer_warm, a query goes to one of its tier's models that is WARM or LOADING whenever there
-    is one, so a cold start happens only when the tier has no model up; the gateway uses this. Without
-    it (the paper's method), every model of the tier is a candidate.
+    With prefer_warm, a query goes to one of its tier's models that is up (WARM, or LOADING within twice
+    its expected load time) whenever there is one, so a cold start happens only when the tier has no
+    model up; a load that is overdue, say because no node is free for it, opens the choice to the
+    tier's other models again. The gateway uses this. Without it (the paper's method), every model of
+    the tier is a candidate.
     """
 
     classifier: HybridClassifier | None
@@ -91,7 +93,12 @@ class Pick:
         """
         candidates = None
         if self.prefer_warm:
-            up = [m for m in self.sampler.tiers[tier] if self.spin.status(m) is not ModelState.COLD]
+            up = [
+                m
+                for m in self.sampler.tiers[tier]
+                if self.spin.status(m) is ModelState.WARM
+                or (self.spin.status(m) is ModelState.LOADING and not self.spin.overdue(m, now))
+            ]
             candidates = up or None
         model, score = self.sampler.select(tier, lambda m: self.spin.latency_estimate(m, now, self.signal), candidates)
         return RouteDecision(tier=tier, stage=stage, model=model, score=score)
