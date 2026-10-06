@@ -1,7 +1,7 @@
 .git
 .venv
-results/live
-results/simulation
+models
+results
 tests
 legacy
 **/__pycache__

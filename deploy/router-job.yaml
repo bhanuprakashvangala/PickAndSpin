@@ -1,6 +1,6 @@
 # Runs the Pick and Spin router (`pickspin live`, CPU only) inside the cluster against the model
-# Services. Build and push an image from this repository first (see deploy/Dockerfile and the
-# README) and set its name below. The ServiceAccount comes from the Helm chart.
+# Services, with the image that CI publishes from deploy/Dockerfile (or one you build from it and set
+# below). The ServiceAccount comes from the Helm chart.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -13,7 +13,7 @@ spec:
       serviceAccountName: pick-and-spin-router
       containers:
         - name: router
-          image: REPLACE_WITH_YOUR_IMAGE
+          image: ghcr.io/bhanuprakashvangala/pick-and-spin:latest
           command: ["pickspin", "live", "--endpoints", "deploy/endpoints.example.json", "--workers", "250"]
           env:
             - name: PS_NAMESPACE

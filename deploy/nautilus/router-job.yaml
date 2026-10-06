@@ -7,7 +7,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: bhanu-pickspin-router-smoke-4
+  name: bhanu-pickspin-router-paper
 spec:
   backoffLimit: 2  # a lost node retries; existing server Jobs are adopted
   activeDeadlineSeconds: 28800
@@ -15,24 +15,19 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: bhanu-pickspin-router
+      nodeSelector: {kubernetes.io/arch: amd64}
       containers:
       - name: router
-        image: python:3.11
+        image: ghcr.io/bhanuprakashvangala/pick-and-spin:main
+        imagePullPolicy: Always
         command: ["bash", "-c"]
         args:
         - |
-          set -euo pipefail
-          git clone -q --depth 1 -b "$GIT_REF" https://github.com/bhanuprakashvangala/PickAndSpin.git /app
-          cd /app
-          pip install -q --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -q --no-cache-dir ".[live,classifier]"
-          python -c "from huggingface_hub import snapshot_download; snapshot_download('bhanuprakashvangala/pickspin-distilbert-complexity', local_dir='models/distilbert-complexity-classifier')"
           pickspin live --servers deploy/nautilus/servers-paper.json --endpoints deploy/nautilus/endpoints-paper.json \
             --namespace "$NAMESPACE" --workers "$WORKERS" --limit "$LIMIT" --out "/results/$RUN_NAME" $EXTRA_ARGS
-          ls -l "/results/$RUN_NAME"
         env:
-        - {name: GIT_REF, value: nautilus}
-        - {name: RUN_NAME, value: smoke-200-d}
+        - {name: PYTHONUNBUFFERED, value: "1"}
+        - {name: RUN_NAME, value: paper-smoke-200}
         - {name: LIMIT, value: "200"}
         - {name: WORKERS, value: "20"}
         - {name: EXTRA_ARGS, value: ""}

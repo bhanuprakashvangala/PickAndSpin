@@ -182,13 +182,14 @@ helm install pick-and-spin deploy/helm/pick-and-spin -n pick-and-spin \
   --set storage.storageClass=<your-rwx-class>
 ```
 
-Every Deployment starts at zero replicas. Build the router image (`deploy/Dockerfile`, after training or copying the
-classifier into `models/`), set it in `deploy/router-job.yaml` and start the Job. It runs `pickspin live` as the
-ServiceAccount the chart creates, which is allowed to scale the model Deployments:
+Every Deployment starts at zero replicas. Start the router Job; it runs `pickspin live` as the ServiceAccount the
+chart creates, which is allowed to scale the model Deployments. Its image, `ghcr.io/bhanuprakashvangala/pick-and-spin`,
+is built from `deploy/Dockerfile` by CI on every push to `main` and holds the package, the classifier and the queries;
+to use your own build, set it in `deploy/router-job.yaml`:
 
 ```bash
-docker build -f deploy/Dockerfile -t <registry>/pick-and-spin-router . && docker push <registry>/pick-and-spin-router
 kubectl -n pick-and-spin apply -f deploy/router-job.yaml
+docker build -f deploy/Dockerfile -t <registry>/pick-and-spin . && docker push <registry>/pick-and-spin   # optional
 ```
 
 `pickspin live` scales every model to zero, routes the queries with 250 workers, and writes
@@ -268,11 +269,15 @@ There are two catalogs. `servers.json`, which the gateway serves, keeps every mo
 the cluster: the COMPLEX tier uses the AWQ builds of Qwen2.5-14B and Qwen2.5-32B, because 48 GB GPUs are rarely free.
 `servers-paper.json` holds the paper's nine models, with Qwen2.5-14B and Gemma-3-27B on 48 GB GPUs or several 24 GB
 ones, for `router-job.yaml`. After editing either file, run `python deploy/nautilus/render.py` and apply
-`services.json`.
+`services.json`. The gateway reads its catalog from the ConfigMap `bhanu-pickspin-servers`, so after changing
+`servers.json`, update the ConfigMap, rerun the download Job for new models, and restart the gateway; no new image is
+needed. Every manifest runs the published image, so the gateway starts in seconds.
 
 ```bash
 kubectl apply -f deploy/nautilus/storage.yaml -f deploy/nautilus/router-rbac.yaml
 kubectl create secret generic <hf-secret> --from-literal=HF_TOKEN=...   # set its name in servers.json
+kubectl create configmap bhanu-pickspin-servers --from-file=servers.json=deploy/nautilus/servers.json \
+  --dry-run=client -o yaml | kubectl apply -f -                  # the gateway's catalog
 kubectl apply -f deploy/nautilus/download-weights.yaml
 kubectl apply -f deploy/nautilus/services.json -f deploy/nautilus/gateway.yaml
 kubectl port-forward svc/bhanu-pickspin-gateway 8080:8080   # then call http://localhost:8080 as above

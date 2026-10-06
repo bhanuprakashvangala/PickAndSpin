@@ -1,10 +1,15 @@
 # The Pick and Spin gateway as a service on Nautilus: an OpenAI-compatible endpoint that routes each
-# request with Pick and lets Spin start and stop the model server Jobs (servers.json). CPU only, so it
-# may run as a Deployment; the GPU servers stay Jobs. Clients in the namespace call
+# request with Pick and lets Spin start and stop the model server Jobs. CPU only, so it may run as a
+# Deployment; the GPU servers stay Jobs. Clients in the namespace call
 #   http://bhanu-pickspin-gateway:8080/v1/chat/completions   with "model": "auto"
 # and from a laptop:  kubectl port-forward svc/bhanu-pickspin-gateway 8080:8080
+#
+# The catalog comes from the ConfigMap bhanu-pickspin-servers, made from servers.json:
+#   kubectl create configmap bhanu-pickspin-servers --from-file=servers.json=deploy/nautilus/servers.json \
+#     --dry-run=client -o yaml | kubectl apply -f -
+# After changing it, restart the gateway: kubectl rollout restart deployment/bhanu-pickspin-gateway
 # One gateway at a time owns the server Jobs (Recreate), and it deletes them when it starts and stops,
-# so do not run `pickspin live --servers` with the same servers.json while the gateway is up.
+# so do not run router-job.yaml while the gateway is up.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,21 +26,13 @@ spec:
     spec:
       serviceAccountName: bhanu-pickspin-router
       terminationGracePeriodSeconds: 60
+      nodeSelector: {kubernetes.io/arch: amd64}
       containers:
       - name: gateway
-        image: python:3.11
-        command: ["bash", "-c"]
-        args:
-        - |
-          set -euo pipefail
-          git clone -q --depth 1 -b "$GIT_REF" https://github.com/bhanuprakashvangala/PickAndSpin.git /app
-          cd /app
-          pip install -q --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -q --no-cache-dir ".[live,classifier]"
-          python -c "from huggingface_hub import snapshot_download; snapshot_download('bhanuprakashvangala/pickspin-distilbert-complexity', local_dir='models/distilbert-complexity-classifier')"
-          exec pickspin serve --servers deploy/nautilus/servers.json --namespace "$NAMESPACE" --port 8080
+        image: ghcr.io/bhanuprakashvangala/pick-and-spin:main
+        imagePullPolicy: Always
+        args: ["serve", "--servers", "/config/servers.json", "--namespace", "$(NAMESPACE)", "--port", "8080"]
         env:
-        - {name: GIT_REF, value: nautilus}
         - {name: PYTHONUNBUFFERED, value: "1"}
         - name: NAMESPACE
           valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
@@ -43,11 +40,16 @@ spec:
         - containerPort: 8080
         readinessProbe:
           httpGet: {path: /healthz, port: 8080}
-          periodSeconds: 10
+          periodSeconds: 5
           failureThreshold: 60
         resources:
           requests: {cpu: "1", memory: 4Gi}
           limits: {cpu: "1", memory: 4Gi}
+        volumeMounts:
+        - {name: servers, mountPath: /config, readOnly: true}
+      volumes:
+      - name: servers
+        configMap: {name: bhanu-pickspin-servers}
 ---
 apiVersion: v1
 kind: Service

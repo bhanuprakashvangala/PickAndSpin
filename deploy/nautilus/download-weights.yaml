@@ -1,43 +1,37 @@
-# Downloads the weights of every model in the server files (servers.json and servers-paper.json) into the
-# shared cache, so that cold starts load from Ceph rather than from the internet. Files already in the cache
-# are skipped, so after adding a model to a server file, rerun this Job under a new name. CPU only.
+# Downloads the weights of every model in the gateway's catalog (the bhanu-pickspin-servers ConfigMap, see
+# gateway.yaml) and in servers-paper.json into the shared cache, so that cold starts load from Ceph rather
+# than from the internet. Files already in the cache are skipped, so after adding a model to the catalog,
+# rerun this Job under a new name. CPU only.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: bhanu-pickspin-download-3
+  name: bhanu-pickspin-download-4
 spec:
   backoffLimit: 2
   activeDeadlineSeconds: 14400
   template:
     spec:
       restartPolicy: Never
+      nodeSelector: {kubernetes.io/arch: amd64}
       containers:
       - name: download
-        image: python:3.11
-        command: ["bash", "-c"]
+        image: ghcr.io/bhanuprakashvangala/pick-and-spin:main
+        imagePullPolicy: Always
+        command: ["python", "-c"]
         args:
         - |
-          set -euo pipefail
-          git clone -q --depth 1 -b "$GIT_REF" https://github.com/bhanuprakashvangala/PickAndSpin.git /app
-          cd /app
-          pip install --no-cache-dir -q . "huggingface_hub[hf_transfer]>=0.25"
-          export HF_HUB_ENABLE_HF_TRANSFER=1
-          python - <<'PY'
           from pathlib import Path
           from huggingface_hub import snapshot_download
           from pickspin.live.jobs import load_servers
           ids = []
-          for file in ("servers.json", "servers-paper.json"):
-              for spec in load_servers(Path("deploy/nautilus") / file)["catalog"].values():
+          for file in ("/config/servers.json", "deploy/nautilus/servers-paper.json"):
+              for spec in load_servers(Path(file))["catalog"].values():
                   if spec.hf_id not in ids:
                       ids.append(spec.hf_id)
           for hf_id in ids:
               print("==", hf_id, flush=True)
               snapshot_download(hf_id, allow_patterns=["*.json", "*.safetensors", "*.model", "*.txt", "tokenizer*"])
-          PY
-          du -sh /cache/hub
         env:
-        - {name: GIT_REF, value: nautilus}
         - {name: HF_HOME, value: /cache}
         - name: HF_TOKEN
           valueFrom: {secretKeyRef: {name: bhanu-pickspin-hf, key: HF_TOKEN}}
@@ -46,6 +40,9 @@ spec:
           limits: {cpu: "4", memory: 8Gi}
         volumeMounts:
         - {name: hf-cache, mountPath: /cache}
+        - {name: servers, mountPath: /config, readOnly: true}
       volumes:
       - name: hf-cache
         persistentVolumeClaim: {claimName: bhanu-pickspin-hf-cache}
+      - name: servers
+        configMap: {name: bhanu-pickspin-servers}

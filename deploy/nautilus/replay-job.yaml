@@ -12,20 +12,14 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      nodeSelector: {kubernetes.io/arch: amd64}
       containers:
       - name: replay
-        image: python:3.11
-        command: ["bash", "-c"]
-        args:
-        - |
-          set -euo pipefail
-          git clone -q --depth 1 -b "$GIT_REF" https://github.com/bhanuprakashvangala/PickAndSpin.git /app
-          cd /app
-          pip install -q --no-cache-dir .
-          pickspin replay --url http://bhanu-pickspin-gateway:8080 --limit "$LIMIT" --workers "$WORKERS" \
-            --out "/results/$RUN_NAME"
+        image: ghcr.io/bhanuprakashvangala/pick-and-spin:main
+        imagePullPolicy: Always
+        args: ["replay", "--url", "http://bhanu-pickspin-gateway:8080", "--limit", "$(LIMIT)", "--workers", "$(WORKERS)",
+               "--out", "/results/$(RUN_NAME)"]
         env:
-        - {name: GIT_REF, value: nautilus}
         - {name: PYTHONUNBUFFERED, value: "1"}
         - {name: RUN_NAME, value: replay-200}
         - {name: LIMIT, value: "200"}
