@@ -144,3 +144,23 @@ def test_route_decisions_are_frozen_records() -> None:
     assert [f.name for f in dataclasses.fields(RouteDecision)] == ["tier", "stage", "model", "score"]
     with pytest.raises(dataclasses.FrozenInstanceError):
         decision.model = "gemma2_2B"  # type: ignore[misc]
+
+
+def test_prefer_warm_routes_to_a_model_that_is_up_and_starts_one_only_when_none_is() -> None:
+    spin = Spin(cooldown_s=300, scale_to_zero=True, now=0.0)
+    simple = list(TIERS[Tier.SIMPLE])
+    warm = simple[1]
+    spin.request(warm, 0.0)
+    spin.loaded(warm, 1.0)
+    spin.start(warm, 1.0)
+    spin.finish(warm, 2.0, infer_s=1.0, total_s=2.0)
+
+    # The paper's Pick still tries the cold models of the tier, whose latency is unknown.
+    explore = Pick(None, spin, rng=random.Random(0))
+    assert {explore.select(Tier.SIMPLE, 3.0).model for _ in range(50)} - {warm}
+
+    # With prefer_warm every query of the tier goes to the model that is up ...
+    pick = Pick(None, spin, rng=random.Random(0), prefer_warm=True)
+    assert {pick.select(Tier.SIMPLE, 3.0).model for _ in range(50)} == {warm}
+    # ... and a tier with no model up chooses among all of its models.
+    assert pick.select(Tier.COMPLEX, 3.0).model in TIERS[Tier.COMPLEX]

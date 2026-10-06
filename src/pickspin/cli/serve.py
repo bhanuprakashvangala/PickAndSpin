@@ -74,6 +74,12 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help="seconds a request waits for a cold model before it gets 503 with Retry-After (default: %(default)s)",
     )
     parser.add_argument(
+        "--explore-cold",
+        action="store_true",
+        help="let Pick choose any model of the tier, as in the paper, even a cold one while another is up "
+        "(default: a cold model is started only when no model of the tier is up)",
+    )
+    parser.add_argument(
         "--latency-signal",
         default=LatencySignal.SPIN.value,
         choices=[signal.value for signal in LatencySignal],
@@ -127,6 +133,7 @@ def run(args: argparse.Namespace) -> int:
         rng=random.Random(args.seed),
         tiers=tiers_of(catalog),
         models=catalog,
+        prefer_warm=not args.explore_cold,
     )
     gateway = Gateway(
         pick=pick,

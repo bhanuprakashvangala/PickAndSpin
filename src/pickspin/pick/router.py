@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pickspin.config import DEFAULT_ROUTING, TIERS, RoutingParams, Tier
 from pickspin.pick.classifier import HybridClassifier, Stage
 from pickspin.pick.sampler import ThompsonSampler
-from pickspin.spin.lifecycle import LatencySignal, Spin
+from pickspin.spin.lifecycle import LatencySignal, ModelState, Spin
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,12 +36,17 @@ class Pick:
     'inference'); any other value raises ValueError. classifier may be None when every query's tier is
     known in advance, as in the simulator, which calls select() directly. The sampler's lock guards the
     posteriors, so the live runner's worker threads can share one Pick.
+
+    With prefer_warm, a query goes to one of its tier's models that is WARM or LOADING whenever there
+    is one, so a cold start happens only when the tier has no model up; the gateway uses this. Without
+    it (the paper's method), every model of the tier is a candidate.
     """
 
     classifier: HybridClassifier | None
     spin: Spin
     signal: LatencySignal
     sampler: ThompsonSampler
+    prefer_warm: bool
 
     def __init__(
         self,
@@ -53,6 +58,7 @@ class Pick:
         tiers: Mapping[Tier, Sequence[str]] = TIERS,
         params: RoutingParams = DEFAULT_ROUTING,
         models: Iterable[str] | None = None,
+        prefer_warm: bool = False,
     ) -> None:
         try:
             self.signal = LatencySignal(signal)
@@ -60,6 +66,7 @@ class Pick:
             raise ValueError(f"unknown latency signal {signal!r}") from None
         self.classifier = classifier
         self.spin = spin
+        self.prefer_warm = prefer_warm
         if models is None:
             self.sampler = ThompsonSampler(tiers=tiers, params=params, rng=rng)
         else:
@@ -78,10 +85,15 @@ class Pick:
     def select(self, tier: Tier, now: float, stage: Stage | None = None) -> RouteDecision:
         """Select a model for a query whose tier is already known.
 
-        Every candidate of the tier is scored with spin.latency_estimate(model, now, signal). The stage
-        is not used for the choice; it is only recorded in the decision.
+        Every candidate of the tier is scored with spin.latency_estimate(model, now, signal); with
+        prefer_warm the candidates are the tier's models that are up, if any. The stage is not used for
+        the choice; it is only recorded in the decision.
         """
-        model, score = self.sampler.select(tier, lambda m: self.spin.latency_estimate(m, now, self.signal))
+        candidates = None
+        if self.prefer_warm:
+            up = [m for m in self.sampler.tiers[tier] if self.spin.status(m) is not ModelState.COLD]
+            candidates = up or None
+        model, score = self.sampler.select(tier, lambda m: self.spin.latency_estimate(m, now, self.signal), candidates)
         return RouteDecision(tier=tier, stage=stage, model=model, score=score)
 
     def update(self, model: str, tier: Tier, success: bool) -> None:

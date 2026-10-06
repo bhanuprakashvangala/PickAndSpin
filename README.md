@@ -221,6 +221,10 @@ hit a cold start, and how long it waited. `GET /v1/models` lists the models, `GE
 utilization, cold starts, measured load times and the state of every model, and `GET /healthz` reports liveness.
 Streaming is not supported.
 
+The gateway sends a query to a model of its tier that is already up whenever there is one, and starts a cold model
+only when none is; `--explore-cold` lets Pick choose any model of the tier as in the paper, at the price of cold
+starts while another model could have answered.
+
 The gateway keeps itself running. A request waits up to `--max-wait` seconds (600 by default) for a cold model and
 then gets `503` with `Retry-After` while the model keeps loading. A model whose server fails to load, or dies later
 (for example when its Job reaches its deadline), goes back to COLD and the next request starts it again. The gateway

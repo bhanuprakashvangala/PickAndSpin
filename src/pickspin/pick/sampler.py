@@ -59,15 +59,18 @@ class ThompsonSampler:
         self.tier_ab = {t: [a, b] for t in tiers}
         self.n = {m: 0 for m in keys}
 
-    def select(self, tier: Tier, latency_of: Callable[[str], float | None]) -> tuple[str, float]:
+    def select(
+        self, tier: Tier, latency_of: Callable[[str], float | None], candidates: Sequence[str] | None = None
+    ) -> tuple[str, float]:
         """Return (model, score) for a query of the tier; latency_of(m) is m's latency, or None if unknown.
 
-        latency_of is called once for every candidate, before any random draw and with the lock held.
-        Under Pick it asks Spin, so the locks are always taken in the order sampler, then Spin. Raises
-        ValueError if the tier has no candidate that can be selected.
+        candidates narrows the choice to some of the tier's models (all of them by default). latency_of
+        is called once for every candidate, before any random draw and with the lock held. Under Pick it
+        asks Spin, so the locks are always taken in the order sampler, then Spin. Raises ValueError if
+        the tier has no candidate that can be selected.
         """
         w, lam, eps = self.params.tier_weight, self.params.latency_weight, self.params.exploration_bonus
-        candidates = self.tiers[tier]
+        candidates = self.tiers[tier] if candidates is None else candidates
         with self._lock:
             lat = {m: latency_of(m) for m in candidates}
             known = [v for v in lat.values() if v is not None]
