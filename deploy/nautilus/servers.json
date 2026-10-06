@@ -1,18 +1,27 @@
 {
- "defaults": {"image": "vllm/vllm-openai:v0.8.5", "cpu": 2, "max_model_len": 4096, "gpu_memory_utilization": 0.9, "hf_token_secret": "bhanu-pickspin-hf", "cache_pvc": "bhanu-pickspin-hf-cache", "active_deadline_s": 21600, "gpus": 1, "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4", "NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S"], "load_timeout_s": 7200, "schedule_patience_s": 600},
+ "defaults": {"image": "vllm/vllm-openai:v0.8.5", "cpu": 2, "max_model_len": 4096, "gpu_memory_utilization": 0.9, "hf_token_secret": "bhanu-pickspin-hf", "cache_pvc": "bhanu-pickspin-hf-cache", "active_deadline_s": 21600, "gpus": 1, "load_timeout_s": 7200, "schedule_patience_s": 600,
+  "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4", "NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S", "NVIDIA-A40", "NVIDIA-RTX-A5000", "NVIDIA-RTX-5000-Ada-Generation", "NVIDIA-RTX-A4000", "NVIDIA-RTX-4000-Ada-Generation"]},
  "models": {
-  "llama3.2_1B": {"name": "bhanu-pickspin-llama32-1b", "memory": "12Gi"},
-  "qwen2.5_1.5B": {"name": "bhanu-pickspin-qwen25-1-5b", "memory": "12Gi"},
+  "llama3.2_1B": {"name": "bhanu-pickspin-llama32-1b", "memory": "12Gi", "schedule_patience_s": 180, "placements": [{},
+   {"gpu_products": ["NVIDIA-GeForce-RTX-2080-Ti", "Tesla-V100-PCIE-16GB", "Tesla-V100-SXM2-16GB", "Tesla-V100-SXM2-32GB", "NVIDIA-TITAN-RTX", "Quadro-RTX-6000", "Quadro-RTX-8000"], "extra_args": ["--dtype=half"], "env": {"VLLM_USE_V1": "0"}}]},
+  "qwen2.5_1.5B": {"name": "bhanu-pickspin-qwen25-1-5b", "memory": "12Gi", "schedule_patience_s": 180, "placements": [{},
+   {"gpu_products": ["NVIDIA-GeForce-RTX-2080-Ti", "Tesla-V100-PCIE-16GB", "Tesla-V100-SXM2-16GB", "Tesla-V100-SXM2-32GB", "NVIDIA-TITAN-RTX", "Quadro-RTX-6000", "Quadro-RTX-8000"], "extra_args": ["--dtype=half"], "env": {"VLLM_USE_V1": "0"}}]},
   "gemma2_2B": {"name": "bhanu-pickspin-gemma2-2b", "memory": "12Gi"},
-  "llama3.2_3B": {"name": "bhanu-pickspin-llama32-3b", "memory": "16Gi"},
-  "qwen2.5_7B": {"name": "bhanu-pickspin-qwen25-7b", "memory": "24Gi"},
-  "llama3.1_8B": {"name": "bhanu-pickspin-llama31-8b", "memory": "24Gi"},
-  "gemma2_9B": {"name": "bhanu-pickspin-gemma2-9b", "memory": "24Gi"},
+  "llama3.2_3B": {"name": "bhanu-pickspin-llama32-3b", "memory": "16Gi", "schedule_patience_s": 180, "placements": [{},
+   {"gpu_products": ["NVIDIA-GeForce-RTX-2080-Ti", "Tesla-V100-PCIE-16GB", "Tesla-V100-SXM2-16GB", "Tesla-V100-SXM2-32GB", "NVIDIA-TITAN-RTX", "Quadro-RTX-6000", "Quadro-RTX-8000"], "extra_args": ["--dtype=half"], "env": {"VLLM_USE_V1": "0"}}]},
+  "qwen2.5_7B": {"name": "bhanu-pickspin-qwen25-7b", "memory": "24Gi", "schedule_patience_s": 300, "placements": [
+   {"gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4", "NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S", "NVIDIA-A40", "NVIDIA-RTX-A5000", "NVIDIA-RTX-5000-Ada-Generation"]},
+   {"gpu_products": ["Tesla-V100-SXM2-32GB", "NVIDIA-TITAN-RTX", "Quadro-RTX-6000", "Quadro-RTX-8000"], "extra_args": ["--dtype=half"], "env": {"VLLM_USE_V1": "0"}}]},
+  "llama3.1_8B": {"name": "bhanu-pickspin-llama31-8b", "memory": "24Gi", "schedule_patience_s": 300, "placements": [
+   {"gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4", "NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S", "NVIDIA-A40", "NVIDIA-RTX-A5000", "NVIDIA-RTX-5000-Ada-Generation"]},
+   {"gpu_products": ["Tesla-V100-SXM2-32GB", "NVIDIA-TITAN-RTX", "Quadro-RTX-6000", "Quadro-RTX-8000"], "extra_args": ["--dtype=half"], "env": {"VLLM_USE_V1": "0"}}]},
+  "gemma2_9B": {"name": "bhanu-pickspin-gemma2-9b", "memory": "24Gi",
+   "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4", "NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S", "NVIDIA-A40", "NVIDIA-RTX-A5000", "NVIDIA-RTX-5000-Ada-Generation"]},
   "qwen2.5_14B": {"name": "bhanu-pickspin-qwen25-14b", "memory": "32Gi", "placements": [
-   {"gpus": 1, "gpu_products": ["NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S"]},
-   {"gpus": 2, "cpu": 3, "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4"], "env": {"NCCL_P2P_DISABLE": "1"}}]},
+   {"gpus": 1, "gpu_products": ["NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S", "NVIDIA-A40"]},
+   {"gpus": 2, "cpu": 3, "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4", "NVIDIA-RTX-A5000"], "env": {"NCCL_P2P_DISABLE": "1"}}]},
   "gemma3_27B": {"name": "bhanu-pickspin-gemma3-27b", "memory": "64Gi", "placements": [
-   {"gpus": 2, "cpu": 3, "gpu_products": ["NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S"]},
-   {"gpus": 4, "cpu": 5, "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4"], "env": {"NCCL_P2P_DISABLE": "1"}}]}
+   {"gpus": 2, "cpu": 3, "gpu_products": ["NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S", "NVIDIA-A40"]},
+   {"gpus": 4, "cpu": 5, "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4", "NVIDIA-RTX-A5000"], "env": {"NCCL_P2P_DISABLE": "1"}}]}
  }
 }

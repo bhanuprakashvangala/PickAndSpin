@@ -40,7 +40,12 @@
               "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40",
+              "NVIDIA-RTX-A5000",
+              "NVIDIA-RTX-5000-Ada-Generation",
+              "NVIDIA-RTX-A4000",
+              "NVIDIA-RTX-4000-Ada-Generation"
              ]
             }
            ]
@@ -174,7 +179,12 @@
               "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40",
+              "NVIDIA-RTX-A5000",
+              "NVIDIA-RTX-5000-Ada-Generation",
+              "NVIDIA-RTX-A4000",
+              "NVIDIA-RTX-4000-Ada-Generation"
              ]
             }
            ]
@@ -308,7 +318,12 @@
               "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40",
+              "NVIDIA-RTX-A5000",
+              "NVIDIA-RTX-5000-Ada-Generation",
+              "NVIDIA-RTX-A4000",
+              "NVIDIA-RTX-4000-Ada-Generation"
              ]
             }
            ]
@@ -442,7 +457,12 @@
               "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40",
+              "NVIDIA-RTX-A5000",
+              "NVIDIA-RTX-5000-Ada-Generation",
+              "NVIDIA-RTX-A4000",
+              "NVIDIA-RTX-4000-Ada-Generation"
              ]
             }
            ]
@@ -576,7 +596,10 @@
               "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40",
+              "NVIDIA-RTX-A5000",
+              "NVIDIA-RTX-5000-Ada-Generation"
              ]
             }
            ]
@@ -710,7 +733,10 @@
               "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40",
+              "NVIDIA-RTX-A5000",
+              "NVIDIA-RTX-5000-Ada-Generation"
              ]
             }
            ]
@@ -844,7 +870,10 @@
               "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40",
+              "NVIDIA-RTX-A5000",
+              "NVIDIA-RTX-5000-Ada-Generation"
              ]
             }
            ]
@@ -974,7 +1003,8 @@
              "values": [
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40"
              ]
             }
            ]
@@ -1104,7 +1134,8 @@
              "values": [
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-L40S",
+              "NVIDIA-A40"
              ]
             }
            ]

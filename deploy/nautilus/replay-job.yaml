@@ -1,0 +1,40 @@
+# Load-tests the running gateway (gateway.yaml) from inside the cluster with `pickspin replay` (CPU only,
+# no Kubernetes access needed: the gateway does the routing and scaling). RUN_NAME, LIMIT and WORKERS
+# select the run; LIMIT=0 sends every query. Results go to the bhanu-pickspin-results volume under
+# /results/$RUN_NAME: replay_<time>.jsonl and replay_<time>_summary.json, which includes the gateway's /stats.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bhanu-pickspin-replay-200
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 28800
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: replay
+        image: python:3.11
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          git clone -q --depth 1 -b "$GIT_REF" https://github.com/bhanuprakashvangala/PickAndSpin.git /app
+          cd /app
+          pip install -q --no-cache-dir .
+          pickspin replay --url http://bhanu-pickspin-gateway:8080 --limit "$LIMIT" --workers "$WORKERS" \
+            --out "/results/$RUN_NAME"
+        env:
+        - {name: GIT_REF, value: nautilus}
+        - {name: PYTHONUNBUFFERED, value: "1"}
+        - {name: RUN_NAME, value: replay-200}
+        - {name: LIMIT, value: "200"}
+        - {name: WORKERS, value: "20"}
+        resources:
+          requests: {cpu: "1", memory: 2Gi}
+          limits: {cpu: "1", memory: 2Gi}
+        volumeMounts:
+        - {name: results, mountPath: /results}
+      volumes:
+      - name: results
+        persistentVolumeClaim: {claimName: bhanu-pickspin-results}
