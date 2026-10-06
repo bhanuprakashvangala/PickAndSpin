@@ -95,12 +95,12 @@
         },
         "resources": {
          "requests": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "12Gi",
           "nvidia.com/gpu": 1
          },
          "limits": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "12Gi",
           "nvidia.com/gpu": 1
          }
@@ -229,12 +229,12 @@
         },
         "resources": {
          "requests": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "12Gi",
           "nvidia.com/gpu": 1
          },
          "limits": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "12Gi",
           "nvidia.com/gpu": 1
          }
@@ -363,12 +363,12 @@
         },
         "resources": {
          "requests": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "12Gi",
           "nvidia.com/gpu": 1
          },
          "limits": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "12Gi",
           "nvidia.com/gpu": 1
          }
@@ -497,12 +497,12 @@
         },
         "resources": {
          "requests": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "16Gi",
           "nvidia.com/gpu": 1
          },
          "limits": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "16Gi",
           "nvidia.com/gpu": 1
          }
@@ -631,12 +631,12 @@
         },
         "resources": {
          "requests": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "24Gi",
           "nvidia.com/gpu": 1
          },
          "limits": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "24Gi",
           "nvidia.com/gpu": 1
          }
@@ -765,12 +765,12 @@
         },
         "resources": {
          "requests": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "24Gi",
           "nvidia.com/gpu": 1
          },
          "limits": {
-          "cpu": "4",
+          "cpu": "2",
           "memory": "24Gi",
           "nvidia.com/gpu": 1
          }
@@ -899,13 +899,13 @@
         },
         "resources": {
          "requests": {
-          "cpu": "4",
-          "memory": "32Gi",
+          "cpu": "2",
+          "memory": "24Gi",
           "nvidia.com/gpu": 1
          },
          "limits": {
-          "cpu": "4",
-          "memory": "32Gi",
+          "cpu": "2",
+          "memory": "24Gi",
           "nvidia.com/gpu": 1
          }
         },
@@ -972,10 +972,9 @@
              "key": "nvidia.com/gpu.product",
              "operator": "In",
              "values": [
-              "NVIDIA-A10",
-              "NVIDIA-GeForce-RTX-3090",
-              "NVIDIA-GeForce-RTX-4090",
-              "NVIDIA-L4"
+              "NVIDIA-RTX-A6000",
+              "NVIDIA-L40",
+              "NVIDIA-L40S"
              ]
             }
            ]
@@ -993,7 +992,7 @@
          "--port=8000",
          "--max-model-len=4096",
          "--gpu-memory-utilization=0.9",
-         "--tensor-parallel-size=2"
+         "--tensor-parallel-size=1"
         ],
         "env": [
          {
@@ -1013,10 +1012,6 @@
             "optional": true
            }
           }
-         },
-         {
-          "name": "NCCL_P2P_DISABLE",
-          "value": "1"
          }
         ],
         "ports": [
@@ -1034,14 +1029,14 @@
         },
         "resources": {
          "requests": {
-          "cpu": "4",
-          "memory": "40Gi",
-          "nvidia.com/gpu": 2
+          "cpu": "2",
+          "memory": "32Gi",
+          "nvidia.com/gpu": 1
          },
          "limits": {
-          "cpu": "4",
-          "memory": "40Gi",
-          "nvidia.com/gpu": 2
+          "cpu": "2",
+          "memory": "32Gi",
+          "nvidia.com/gpu": 1
          }
         },
         "volumeMounts": [
@@ -1107,10 +1102,9 @@
              "key": "nvidia.com/gpu.product",
              "operator": "In",
              "values": [
-              "NVIDIA-A10",
-              "NVIDIA-GeForce-RTX-3090",
-              "NVIDIA-GeForce-RTX-4090",
-              "NVIDIA-L4"
+              "NVIDIA-RTX-A6000",
+              "NVIDIA-L40",
+              "NVIDIA-L40S"
              ]
             }
            ]
@@ -1128,7 +1122,7 @@
          "--port=8000",
          "--max-model-len=4096",
          "--gpu-memory-utilization=0.9",
-         "--tensor-parallel-size=4"
+         "--tensor-parallel-size=2"
         ],
         "env": [
          {
@@ -1148,10 +1142,6 @@
             "optional": true
            }
           }
-         },
-         {
-          "name": "NCCL_P2P_DISABLE",
-          "value": "1"
          }
         ],
         "ports": [
@@ -1169,14 +1159,14 @@
         },
         "resources": {
          "requests": {
-          "cpu": "8",
-          "memory": "80Gi",
-          "nvidia.com/gpu": 4
+          "cpu": "3",
+          "memory": "64Gi",
+          "nvidia.com/gpu": 2
          },
          "limits": {
-          "cpu": "8",
-          "memory": "80Gi",
-          "nvidia.com/gpu": 4
+          "cpu": "3",
+          "memory": "64Gi",
+          "nvidia.com/gpu": 2
          }
         },
         "volumeMounts": [

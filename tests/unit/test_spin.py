@@ -53,6 +53,43 @@ def test_a_routed_query_blocks_scale_down(serve: Serve) -> None:
     assert not spin.stop(m, 400.0)
 
 
+def test_a_lost_load_returns_the_model_to_cold_and_releases_its_gpus() -> None:
+    spin = Spin(cooldown_s=300, scale_to_zero=True, now=0.0)
+    m = "llama3.2_1B"
+    assert spin.request(m, 10.0) == COLD
+    assert spin.request(m, 12.0) == LOADING
+    assert spin.lost(m, 40.0)  # the load failed after 30 s
+    assert spin.status(m) == COLD
+    assert not spin.lost(m, 41.0)  # already COLD
+    spin.cancel(m)
+    spin.cancel(m)  # both waiting queries give up
+    assert spin.request(m, 50.0) == COLD  # the next query is a new cold start
+    spin.loaded(m, 60.0)
+    assert spin.idle_expired(360.0) == []  # that query is still pending
+    spin.start(m, 60.0)
+    spin.finish(m, 61.0, infer_s=1.0, total_s=11.0)
+    assert spin.idle_expired(361.0) == [m]
+    usage = spin.summary(61.0).per_model[m]
+    assert usage.cold_starts == 2
+    assert usage.loading_gpu_hours == pytest.approx((30.0 + 10.0) / 3600)
+    assert usage.gpu_hours == pytest.approx((30.0 + 11.0) / 3600)
+
+
+def test_a_warm_model_whose_server_died_is_lost_even_while_busy() -> None:
+    spin = Spin(cooldown_s=300, scale_to_zero=True, now=0.0)
+    m = "qwen2.5_7B"
+    spin.request(m, 0.0)
+    spin.loaded(m, 10.0)
+    spin.start(m, 10.0)
+    assert spin.lost(m, 20.0)  # the query in flight still finishes, as a failure
+    assert spin.status(m) == COLD
+    spin.finish(m, 21.0, infer_s=11.0, total_s=21.0)
+    assert spin.inflight(m) == 0
+    usage = spin.summary(100.0).per_model[m]
+    assert usage.gpu_hours == pytest.approx(20.0 / 3600)
+    assert usage.busy_gpu_hours == pytest.approx(11.0 / 3600)
+
+
 def test_static_deployment_holds_every_gpu() -> None:
     spin = Spin(scale_to_zero=False, now=0.0)
     assert all(spin.status(m) == WARM for m in MODELS)

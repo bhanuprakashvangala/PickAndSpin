@@ -1,6 +1,7 @@
 """The Job-based actuator for clusters without GPU Deployments (deploy/nautilus)."""
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -127,12 +128,17 @@ class ApiException(Exception):  # noqa: N818 - mirrors kubernetes.client.excepti
 class FakeBatch:
     def __init__(self):
         self.jobs = {}
+        self.ended = {}  # Job name -> the condition it ended with
         self.calls = []
 
     def read_namespaced_job(self, name, namespace):
         if name not in self.jobs:
             raise ApiException(404)
-        return SimpleNamespace(metadata=SimpleNamespace(deletion_timestamp=None))
+        ended = self.ended.get(name)
+        return SimpleNamespace(
+            metadata=SimpleNamespace(deletion_timestamp=None),
+            status=SimpleNamespace(conditions=[ended] if ended else None),
+        )
 
     def create_namespaced_job(self, namespace, body):
         self.calls.append(("create", body["metadata"]["name"]))
@@ -140,21 +146,54 @@ class FakeBatch:
 
     def delete_namespaced_job(self, name, namespace, propagation_policy):
         self.calls.append(("delete", name))
+        self.ended.pop(name, None)
         if self.jobs.pop(name, None) is None:
             raise ApiException(404)
 
 
-def make_actuator(servers, batch):
+class FakeCore:
+    """Lists the pods that pods_of(job body) gives for the Job named in the label selector."""
+
+    def __init__(self, batch, pods_of):
+        self.batch = batch
+        self.pods_of = pods_of
+
+    def list_namespaced_pod(self, namespace, label_selector):
+        body = self.batch.jobs.get(label_selector.split("=", 1)[1])
+        return SimpleNamespace(items=self.pods_of(body) if body else [])
+
+
+def pod(phase="Pending", *, ready=False, unschedulable=False, terminated=None):
+    conditions = []
+    if unschedulable:
+        conditions.append(SimpleNamespace(type="PodScheduled", status="False", reason="Unschedulable"))
+    if ready:
+        conditions.append(SimpleNamespace(type="Ready", status="True", reason=None, last_transition_time=None))
+    states = [SimpleNamespace(state=SimpleNamespace(terminated=terminated, running=None))] if terminated else []
+    return SimpleNamespace(
+        metadata=SimpleNamespace(deletion_timestamp=None, creation_timestamp=None),
+        status=SimpleNamespace(phase=phase, conditions=conditions, container_statuses=states, reason=None),
+    )
+
+
+def gpus_of(body):
+    return body["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]["nvidia.com/gpu"]
+
+
+def make_actuator(servers, batch, pods_of=lambda body: []):
     actuator = JobActuator.__new__(JobActuator)
     actuator._api_exception = ApiException
     actuator.batch = batch
-    actuator.core = None
+    actuator.core = FakeCore(batch, pods_of)
     actuator.servers = servers
     actuator.endpoints = render_endpoints(servers)
     actuator.namespace = "ns"
     actuator.poll_s = 0.0
     actuator.timeout_s = 1.0
     actuator.measured = {}
+    actuator.phases = {}
+    actuator.placement = {}
+    actuator._created = {}
     import threading
 
     actuator._lock = threading.Lock()
@@ -170,6 +209,62 @@ def test_scale_creates_once_and_deletes(servers):
     actuator.scale("qwen2.5_7B", 0)  # already gone: no error
     name = servers["models"]["qwen2.5_7B"]["name"]
     assert batch.calls == [("create", name), ("delete", name), ("delete", name)]
+
+
+def test_scale_replaces_a_job_that_has_ended(servers):
+    batch = FakeBatch()
+    actuator = make_actuator(servers, batch)
+    name = servers["models"]["qwen2.5_7B"]["name"]
+    actuator.scale("qwen2.5_7B", 1)
+    assert actuator.alive("qwen2.5_7B")
+    batch.ended[name] = SimpleNamespace(type="Failed", status="True", reason="DeadlineExceeded")
+    assert actuator.failure("qwen2.5_7B") == "its Job failed (DeadlineExceeded)"
+    assert not actuator.alive("qwen2.5_7B")
+    actuator.scale("qwen2.5_7B", 1)  # the ended Job is replaced, not adopted
+    assert batch.calls == [("create", name), ("delete", name), ("create", name)]
+    assert actuator.alive("qwen2.5_7B")
+
+
+def test_wait_ready_fails_as_soon_as_the_server_stops(servers):
+    oom = SimpleNamespace(reason="OOMKilled", exit_code=137)
+    actuator = make_actuator(servers, FakeBatch(), lambda body: [pod("Failed", terminated=oom)])
+    actuator.scale("llama3.2_1B", 1)
+    with pytest.raises(RuntimeError, match=r"its pod stopped: OOMKilled \(exit code 137\)"):
+        actuator.wait_ready("llama3.2_1B", time.monotonic())
+    assert actuator.measured == {}
+
+
+def test_a_model_that_finds_no_node_moves_to_its_next_placement(tmp_path):
+    big, small = ["NVIDIA-L40S"], ["NVIDIA-GeForce-RTX-3090"]
+    custom = tmp_path / "servers.json"
+    defaults = json.loads(SERVERS.read_text(encoding="utf-8"))["defaults"]
+    entry = {
+        "name": "q14",
+        "memory": "32Gi",
+        "schedule_patience_s": 0,
+        "placements": [{"gpus": 1, "gpu_products": big}, {"gpus": 2, "gpu_products": small, "env": {"X": "1"}}],
+    }
+    custom.write_text(json.dumps({"defaults": defaults, "models": {"qwen2.5_14B": entry}}), encoding="utf-8")
+    servers = load_servers(custom)
+    assert servers["catalog"]["qwen2.5_14B"].gpus == 1  # the first placement is the one counted
+    assert servers["models"]["qwen2.5_14B"]["gpu_products"] == big
+
+    # One GPU of the big kind never gets a node; two of the small kind are ready at once.
+    batch = FakeBatch()
+    actuator = make_actuator(
+        servers, batch, lambda body: [pod(unschedulable=True)] if gpus_of(body) == 1 else [pod("Running", ready=True)]
+    )
+    actuator.healthy = lambda model: True
+    actuator.scale("qwen2.5_14B", 1)
+    actuator.wait_ready("qwen2.5_14B", time.monotonic())
+
+    assert batch.calls == [("create", "q14"), ("delete", "q14"), ("create", "q14")]
+    job = batch.jobs["q14"]
+    assert gpus_of(job) == 2
+    assert "--tensor-parallel-size=2" in job["spec"]["template"]["spec"]["containers"][0]["args"]
+    assert {"name": "X", "value": "1"} in job["spec"]["template"]["spec"]["containers"][0]["env"]
+    assert actuator.placement["qwen2.5_14B"] == 1
+    assert len(actuator.measured["qwen2.5_14B"]) == 1
 
 
 def test_load_estimate_uses_measurements(servers):

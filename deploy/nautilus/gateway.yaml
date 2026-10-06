@@ -2,6 +2,9 @@
 # request with Pick and lets Spin start and stop the model server Jobs (servers.json). CPU only, so it
 # may run as a Deployment; the GPU servers stay Jobs. Clients in the namespace call
 #   http://bhanu-pickspin-gateway:8080/v1/chat/completions   with "model": "auto"
+# and from a laptop:  kubectl port-forward svc/bhanu-pickspin-gateway 8080:8080
+# One gateway at a time owns the server Jobs (Recreate), and it deletes them when it starts and stops,
+# so do not run `pickspin live --servers` with the same servers.json while the gateway is up.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,6 +12,7 @@ metadata:
   labels: {app: pickspin-gateway}
 spec:
   replicas: 1
+  strategy: {type: Recreate}
   selector:
     matchLabels: {app: pickspin-gateway}
   template:
@@ -16,6 +20,7 @@ spec:
       labels: {app: pickspin-gateway}
     spec:
       serviceAccountName: bhanu-pickspin-router
+      terminationGracePeriodSeconds: 60
       containers:
       - name: gateway
         image: python:3.11
@@ -31,6 +36,7 @@ spec:
           exec pickspin serve --servers deploy/nautilus/servers.json --namespace "$NAMESPACE" --port 8080
         env:
         - {name: GIT_REF, value: nautilus}
+        - {name: PYTHONUNBUFFERED, value: "1"}
         - name: NAMESPACE
           valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
         ports:
@@ -40,8 +46,8 @@ spec:
           periodSeconds: 10
           failureThreshold: 60
         resources:
-          requests: {cpu: "2", memory: 6Gi}
-          limits: {cpu: "2", memory: 6Gi}
+          requests: {cpu: "1", memory: 4Gi}
+          limits: {cpu: "1", memory: 4Gi}
 ---
 apiVersion: v1
 kind: Service

@@ -13,6 +13,10 @@ Endpoints:
 
 The models come from the server file (deploy/nautilus/servers.json), so replacing a model means editing
 that file. Streaming responses are not supported.
+
+The gateway recovers on its own: a model whose server fails to load, or dies while WARM, goes back to
+COLD and is started afresh by the next request. A request waits at most max_wait_s for a cold model;
+after that it gets 503 with Retry-After while the model keeps loading.
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ import requests
 
 from pickspin.config import ModelSpec
 from pickspin.live.actuator import Actuator
-from pickspin.live.runner import ModelLifecycle
+from pickspin.live.runner import ModelLifecycle, ModelUnavailable
 from pickspin.live.vllm import Endpoint, chat_completions_url
 from pickspin.pick.router import Pick
 from pickspin.spin.lifecycle import ModelState, Spin
@@ -38,6 +42,7 @@ from pickspin.spin.lifecycle import ModelState, Spin
 log = logging.getLogger(__name__)
 
 AUTO = "auto"
+RETRY_AFTER_S = 30
 
 
 class GatewayError(Exception):
@@ -66,8 +71,8 @@ class Gateway(ModelLifecycle):
     """Routes chat completions with Pick and serves them through Spin's lifecycle.
 
     catalog describes the models; endpoints gives each model's server URL and served model name.
-    post sends a JSON body to a URL and returns (status, body); it defaults to requests.post and is
-    replaced in tests.
+    timeout_s bounds a forwarded request and max_wait_s the wait for a cold model. post sends a JSON
+    body to a URL and returns (status, body); it defaults to requests.post and is replaced in tests.
     """
 
     def __init__(
@@ -82,17 +87,20 @@ class Gateway(ModelLifecycle):
         static: bool = False,
         clock: Callable[[], float] = time.monotonic,
         timeout_s: float = 300.0,
+        max_wait_s: float = 600.0,
         post: Callable[[str, dict[str, Any], Mapping[str, str], float], tuple[int, Any]] | None = None,
     ) -> None:
-        super().__init__(spin=spin, actuator=actuator, static=static, clock=clock)
+        super().__init__(spin=spin, actuator=actuator, static=static, clock=clock, recover=True)
         self.pick = pick
         self.catalog = catalog
         self.endpoints = endpoints
         self.headers = dict(headers or {})
         self.timeout_s = timeout_s
+        self.max_wait_s = max_wait_s
         self.post = post or _post_json
         self._requests_lock = threading.Lock()
         self.requests_served = 0
+        self.requests_unavailable = 0  # answered 503 because the model failed to load or was still loading
 
     def models(self) -> dict[str, Any]:
         """The /v1/models answer: "auto" plus every model of the catalog."""
@@ -108,8 +116,12 @@ class Gateway(ModelLifecycle):
         summary = self.spin.summary(self.clock()).to_dict()
         summary["states"] = {m: str(self.spin.status(m)) for m in self.spin.models}
         summary["requests_served"] = self.requests_served
+        summary["requests_unavailable"] = self.requests_unavailable
         if self.actuator is not None:
             summary["measured_load_s"] = self.actuator.measured
+            phases = getattr(self.actuator, "phases", None)
+            if phases is not None:
+                summary["load_phases"] = phases
         return summary
 
     def complete(self, body: Mapping[str, Any]) -> dict[str, Any]:
@@ -126,7 +138,23 @@ class Gateway(ModelLifecycle):
             model, tier, stage = requested, self.catalog[requested].tier, None
         else:
             raise GatewayError(HTTPStatus.NOT_FOUND, f"unknown model {requested!r}; see /v1/models")
-        before = self.acquire(model, t_arrive)
+        meta: dict[str, Any] = {"model": model, "tier": str(tier), "stage": str(stage) if stage is not None else None}
+        try:
+            before = self.acquire(model, t_arrive, timeout=self.max_wait_s)
+        except ModelUnavailable as e:
+            with self._requests_lock:
+                self.requests_unavailable += 1
+            if not e.still_loading:
+                self.pick.update(model, tier, False)
+            meta["wait_s"] = round(self.clock() - t_arrive, 3)
+            kind = "model_loading" if e.still_loading else "model_unavailable"
+            message = f"{e}; retry in {RETRY_AFTER_S} s"
+            raise _ReplyError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": {"message": message, "type": kind}, "pickspin": meta},
+                {"Retry-After": str(RETRY_AFTER_S)},
+            ) from None
+        load = self.loads[model]
         t_start = self.clock()
         self.spin.start(model, t_start)
         endpoint = self.endpoints[model]
@@ -136,6 +164,13 @@ class Gateway(ModelLifecycle):
         try:
             status, reply = self.post(chat_completions_url(endpoint), forward, self.headers, self.timeout_s)
             ok = status == HTTPStatus.OK
+        except requests.ConnectionError as e:
+            # The server may be gone (its Job failed or hit its deadline); if so, the next request restarts it.
+            if self.check_server(model, load):
+                status, why = HTTPStatus.SERVICE_UNAVAILABLE, "its server is gone; the next request starts it again"
+            else:
+                status, why = HTTPStatus.BAD_GATEWAY, type(e).__name__
+            reply = {"error": {"message": f"{model} unreachable: {why}"}}
         except requests.RequestException as e:
             status, reply = HTTPStatus.BAD_GATEWAY, {"error": {"message": f"{model} unreachable: {type(e).__name__}"}}
         finally:
@@ -146,10 +181,7 @@ class Gateway(ModelLifecycle):
                 self.requests_served += 1
         if not isinstance(reply, dict):
             reply = {"error": {"message": str(reply)}}
-        reply["pickspin"] = {
-            "model": model,
-            "tier": str(tier),
-            "stage": str(stage) if stage is not None else None,
+        reply["pickspin"] = meta | {
             "cold_start": before is ModelState.COLD,
             "wait_s": round(t_start - t_arrive, 3),
             "total_s": round(t_end - t_arrive, 3),
@@ -164,12 +196,13 @@ class Gateway(ModelLifecycle):
 
 
 class _ReplyError(Exception):
-    """A failed upstream reply that is passed on to the client with its status."""
+    """A reply that is not a success, passed on to the client with its status and extra headers."""
 
-    def __init__(self, status: HTTPStatus, body: dict[str, Any]) -> None:
+    def __init__(self, status: HTTPStatus, body: dict[str, Any], headers: Mapping[str, str] | None = None) -> None:
         super().__init__(status)
         self.status = status
         self.body = body
+        self.headers = dict(headers or {})
 
 
 def _post_json(url: str, body: dict[str, Any], headers: Mapping[str, str], timeout_s: float) -> tuple[int, Any]:
@@ -190,11 +223,13 @@ def make_handler(gateway: Gateway) -> type[BaseHTTPRequestHandler]:
         def log_message(self, fmt: str, *args: Any) -> None:
             log.debug("%s - %s", self.address_string(), fmt % args)
 
-        def _send(self, status: HTTPStatus | int, body: Any) -> None:
+        def _send(self, status: HTTPStatus | int, body: Any, headers: Mapping[str, str] | None = None) -> None:
             data = json.dumps(body).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
 
@@ -223,7 +258,7 @@ def make_handler(gateway: Gateway) -> type[BaseHTTPRequestHandler]:
             except GatewayError as e:
                 self._send(e.status, {"error": {"message": str(e)}})
             except _ReplyError as e:
-                self._send(e.status, e.body)
+                self._send(e.status, e.body, e.headers)
 
     return Handler
 

@@ -283,7 +283,7 @@ def test_records_serialize_like_the_old_dicts() -> None:
 def test_a_static_runner_never_calls_the_actuator(clock: ManualClock) -> None:
     actuator = RecordingActuator(clock)
     runner = make_runner(clock, actuator=actuator, static=True)
-    assert all(runner.ready[m].is_set() for m in MODELS)
+    assert all(runner.is_ready(m) for m in MODELS)
     runner.prepare()
     runner.start_reaper()
     record = runner.process(query(1))
@@ -308,7 +308,7 @@ def test_the_cold_path_brings_the_model_up_once(clock: ManualClock) -> None:
     chat = ScriptedChat(clock)
     runner = make_runner(clock, actuator=actuator, chat=chat)
     actuator.scale_lock = runner.scale_lock
-    assert not runner.ready[MODEL].is_set()
+    assert not runner.is_ready(MODEL)
 
     record = runner.process(query(1))
 
@@ -322,7 +322,7 @@ def test_the_cold_path_brings_the_model_up_once(clock: ManualClock) -> None:
     assert (record.wait_s, record.latency, record.total_latency) == (30.0, 0.25, 30.25)
     assert chat.calls == [(ENDPOINTS[MODEL], "What is 2 + 2?", 256, HEADERS)]
     assert runner.spin.status(MODEL) is ModelState.WARM
-    assert runner.ready[MODEL].is_set()
+    assert runner.is_ready(MODEL)
     usage = runner.spin.summary(clock()).per_model[MODEL]
     assert (usage.cold_starts, usage.loading_gpu_hours) == (1, LOAD_S / 3600)
     assert runner.pick.sampler.model_ab[MODEL] == [2.0, 1.0]
@@ -344,7 +344,7 @@ def test_a_query_that_finds_its_model_loading_waits_without_a_second_bring_up(cl
             waiting.set()
             return super().wait(timeout)
 
-    runner.ready[MODEL] = SignallingEvent()
+    runner.loads[MODEL].done = SignallingEvent()
     records: list[LiveRecord] = []
     worker = threading.Thread(target=lambda: records.append(runner.process(query(2))), daemon=True)
     worker.start()
@@ -367,7 +367,9 @@ def test_a_failed_load_still_sends_the_query(clock: ManualClock, runner_log: pyt
     record = runner.process(query(1))
 
     assert runner.spin.status(MODEL) is ModelState.WARM
-    assert runner.ready[MODEL].is_set()
+    assert runner.loads[MODEL].done.is_set()
+    assert not runner.loads[MODEL].ok
+    assert not runner.is_ready(MODEL)
     assert len(chat.calls) == 1
     assert (record.cold_start, record.waited_for_load, record.wait_s) == (True, True, LOAD_S)
     assert (record.success, record.response, record.error) == (False, "", "ConnectionError")
@@ -438,7 +440,7 @@ def test_reap_once_scales_a_model_idle_for_the_cooldown_to_zero(clock: ManualClo
     assert actuator.calls[-1] == ("scale", MODEL, 0)
     assert actuator.lock_held[-1] == ("scale", MODEL, True)
     assert runner.spin.status(MODEL) is ModelState.COLD
-    assert not runner.ready[MODEL].is_set()
+    assert not runner.is_ready(MODEL)
     assert runner.spin.summary(clock()).per_model[MODEL].gpu_hours == pytest.approx(330.25 / 3600)
 
     # The next query finds the model COLD again and brings it back up.
@@ -604,7 +606,7 @@ def test_run_live_wires_the_parts_in_the_old_order(
     assert runner.pick.classifier is classifier
     assert runner.pick.signal is LatencySignal.OBSERVED
     assert runner.pick.sampler.rng.getstate() == random.Random(7).getstate()  # its own stream, unused so far
-    assert not any(runner.ready[m].is_set() for m in MODELS)
+    assert not any(runner.is_ready(m) for m in MODELS)
 
 
 @pytest.mark.parametrize(("limit", "kept"), [(None, 10), (0, 10), (3, 3), (25, 10)])

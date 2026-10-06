@@ -118,24 +118,51 @@ class LiveRecord:
         return json.dumps(dataclasses.asdict(self), ensure_ascii=False)
 
 
+class ModelUnavailable(Exception):  # noqa: N818 - names the condition, like TimeoutError
+    """A query's model cannot serve it: its load failed, or it is still loading after the wait allowed.
+
+    still_loading tells the two apart; in the second case the load goes on and a client may retry.
+    """
+
+    def __init__(self, model: str, *, still_loading: bool) -> None:
+        super().__init__(f"{model} is still loading" if still_loading else f"{model} failed to load")
+        self.model = model
+        self.still_loading = still_loading
+
+
+@dataclass(eq=False)
+class Load:
+    """One bring-up of a model: done is set when it ends, and ok tells whether the server came up."""
+
+    done: threading.Event = field(default_factory=threading.Event)
+    ok: bool = False
+
+
 class ModelLifecycle:
     """Spin's side of a live deployment: bring-up of cold models, the reaper and waiting for a model.
 
     clock returns the current time in seconds (time.monotonic in a real run) and is the time Spin sees.
     The actuator scales the models; only a static deployment may go without one, and it never calls it.
 
-    ready[m] is set while queries for model m may be sent: always in a static deployment, otherwise
-    from the end of the model's bring-up until the reaper scales it to zero. scale_lock[m] keeps a
-    bring-up and a scale-down of the same model apart. Setting stop ends the reaper thread. Both the
-    benchmark replay (LiveRunner) and the gateway (pickspin.live.gateway) build on this class.
+    loads[m] is model m's latest bring-up: a query that finds the model COLD starts a new one, and the
+    queries that find it LOADING wait for that one. scale_lock[m] keeps a bring-up and a scale-down of
+    the same model apart. Setting stop ends the reaper thread. Both the benchmark replay (LiveRunner)
+    and the gateway (pickspin.live.gateway) build on this class.
+
+    recover sets what a failed load does. Without it (the benchmark), the model is still marked WARM
+    and the queries that waited for it are sent anyway and recorded as failures. With it (the gateway),
+    the failed server is removed and the model goes back to COLD, so the next query starts it afresh,
+    and the queries that waited get ModelUnavailable; check_server does the same for a WARM model
+    whose server has died.
     """
 
     spin: Spin
     actuator: Actuator | None
     clock: Callable[[], float]
     static: bool
+    recover: bool
     reaper_interval_s: float
-    ready: dict[str, threading.Event]
+    loads: dict[str, Load]
     scale_lock: dict[str, threading.Lock]
     stop: threading.Event
 
@@ -147,6 +174,7 @@ class ModelLifecycle:
         static: bool,
         clock: Callable[[], float] = time.monotonic,
         reaper_interval_s: float = 5.0,
+        recover: bool = False,
     ) -> None:
         if actuator is None and not static:
             raise ValueError("a live run that scales models needs an actuator; only a static run can do without")
@@ -154,13 +182,21 @@ class ModelLifecycle:
         self.actuator = actuator
         self.static = static
         self.clock = clock
+        self.recover = recover
         self.reaper_interval_s = reaper_interval_s
-        self.ready = {m: threading.Event() for m in spin.models}
-        self.scale_lock = {m: threading.Lock() for m in spin.models}
+        self.loads = {m: Load() for m in spin.models}
         if static:
-            for e in self.ready.values():
-                e.set()
+            for load in self.loads.values():
+                load.ok = True
+                load.done.set()
+        self.scale_lock = {m: threading.Lock() for m in spin.models}
+        self._route_lock = threading.Lock()  # a COLD query's new Load is in place before others look
         self.stop = threading.Event()
+
+    def is_ready(self, model: str) -> bool:
+        """Return True if the model is WARM and its latest load brought its server up."""
+        load = self.loads[model]
+        return self.spin.status(model) is ModelState.WARM and load.done.is_set() and load.ok
 
     def start_reaper(self) -> None:
         """Start the daemon thread that scales idle models to zero, until stop is set.
@@ -187,41 +223,99 @@ class ModelLifecycle:
         for m in self.spin.idle_expired(self.clock()):
             with self.scale_lock[m]:
                 if self.spin.stop(m, self.clock()):
-                    self.ready[m].clear()
                     assert self.actuator is not None  # only a run that scales to zero has idle models
                     self.actuator.scale(m, 0)
                     stopped.append(m)
         return stopped
 
-    def bring_up(self, model: str) -> None:
+    def release_all(self) -> None:
+        """Scale every model to zero without waiting, as the gateway does when it starts and stops.
+
+        A failure is logged and the other models are still scaled. A static deployment scales nothing.
+        """
+        if self.static:
+            return
+        assert self.actuator is not None  # __init__ requires an actuator unless the deployment is static
+        for m in self.spin.models:
+            with self.scale_lock[m]:
+                try:
+                    self.actuator.scale(m, 0)
+                except Exception as e:  # keep releasing the others
+                    log.warning("Scaling %s to zero failed: %s", m, e)
+
+    def bring_up(self, model: str, load: Load | None = None) -> None:
         """Scale a cold model to one replica, wait until it is ready, and release the queries waiting for it.
 
-        A failed load is logged and the model is still marked WARM: the queries waiting for it are sent
-        anyway and recorded as failures.
+        load is the bring-up this is (the model's latest by default). A failed load is logged, and then
+        handled as the class docstring describes for recover.
         """
+        load = self.loads[model] if load is None else load
         t0 = self.clock()
         try:
             assert self.actuator is not None  # a static run never has a COLD model
             with self.scale_lock[model]:
                 self.actuator.scale(model, 1)
             self.actuator.wait_ready(model, t0)
-        except Exception as e:  # the waiting queries are sent anyway and recorded as failures
+            load.ok = True
+        except Exception as e:  # handled below, as recover says
             log.warning("Loading %s failed: %s", model, e)
         finally:
-            self.spin.loaded(model, self.clock())
-            self.ready[model].set()
+            if load.ok or not self.recover:
+                self.spin.loaded(model, self.clock())
+            else:
+                with self.scale_lock[model]:
+                    self._remove_server(model)
+            load.done.set()
 
-    def acquire(self, model: str, now: float) -> ModelState:
+    def _remove_server(self, model: str) -> None:
+        """Delete the model's failed or dead server and mark the model COLD; the caller holds its scale lock."""
+        assert self.actuator is not None  # only a deployment that scales models removes servers
+        try:
+            self.actuator.scale(model, 0)
+        except Exception as e:  # the model still goes COLD; its next bring-up replaces the server
+            log.warning("Removing the server of %s failed: %s", model, e)
+        self.spin.lost(model, self.clock())
+
+    def check_server(self, model: str, load: Load) -> bool:
+        """After a query could not reach a WARM model's server: if the server is gone, start over.
+
+        In recover mode, if load is still the model's latest bring-up and the actuator reports that the
+        server is not alive, the server is removed and the model marked COLD, so the next query brings it
+        up again. Returns True if that happened.
+        """
+        if not self.recover or self.actuator is None:
+            return False
+        with self.scale_lock[model]:
+            if self.loads[model] is not load or self.spin.status(model) is not ModelState.WARM:
+                return False  # already handled, or a new server is on its way
+            if self.actuator.alive(model):
+                return False
+            log.warning("The server of %s is gone; the next query starts it again", model)
+            self._remove_server(model)
+        return True
+
+    def acquire(self, model: str, now: float, timeout: float | None = None) -> ModelState:
         """Count a query as routed to model and wait until the model can serve it.
 
         Returns the model's state when the query arrived. Only a query that finds its model COLD starts
-        the bring-up, in a daemon thread; every query whose model is not WARM yet waits until it is ready.
+        a bring-up, in a daemon thread; every query whose model is not WARM yet waits for that bring-up.
+        A query still waiting after timeout seconds, or (in recover mode) whose model failed to load,
+        gives up (Spin.cancel) and raises ModelUnavailable; the bring-up goes on without it.
         """
-        before = self.spin.request(model, now)
-        if before is ModelState.COLD:
-            threading.Thread(target=self.bring_up, args=(model,), daemon=True).start()
-        if before is not ModelState.WARM:
-            self.ready[model].wait()
+        with self._route_lock:
+            before = self.spin.request(model, now)
+            if before is ModelState.COLD:
+                self.loads[model] = Load()
+                threading.Thread(target=self.bring_up, args=(model, self.loads[model]), daemon=True).start()
+            load = self.loads[model]
+        if before is ModelState.WARM:
+            return before
+        if not load.done.wait(timeout):
+            self.spin.cancel(model)
+            raise ModelUnavailable(model, still_loading=True)
+        if self.recover and not load.ok:
+            self.spin.cancel(model)
+            raise ModelUnavailable(model, still_loading=False)
         return before
 
 

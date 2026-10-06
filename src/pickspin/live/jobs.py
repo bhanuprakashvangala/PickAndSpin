@@ -12,6 +12,11 @@ The server of each model is described in a JSON file (deploy/nautilus/servers.js
 A model's entry replaces a default field as a whole (an "env" map in a model replaces the default one).
 "extra_args" are appended to the vLLM arguments and "env" adds environment variables to the server.
 
+"placements" lists other ways to run a model, each a partial entry (such as {"gpus": 2, "gpu_products":
+[...]}) applied over the model's own. The first is the one rendered and counted in the catalog. When the
+pod of a model waits longer than schedule_patience_s for a node, JobActuator moves the model to its next
+placement, and a failed load also moves it on for the next try.
+
 render_job and render_service turn one entry into Kubernetes manifests; render_all writes every
 manifest for `kubectl apply`, for example to start all servers for a static run.
 """
@@ -42,7 +47,8 @@ _SPEC_FIELDS = ("hf_id", "tier", "weight_gb", "cold_start_s")
 def load_servers(path: Path) -> dict[str, Any]:
     """Read a server file and return {"defaults", "models", "catalog"}.
 
-    models maps each key to its server spec merged over the defaults. catalog maps each key to a
+    models maps each key to its server spec merged over the defaults, with its first placement applied
+    if it lists placements. catalog maps each key to a
     ModelSpec: a key of the paper's pool takes its figures from pickspin.config.MODELS unless the entry
     overrides them, and any other key must give hf_id, tier, weight_gb and cold_start_s itself (label
     defaults to the key). gpus always comes from the server spec, since it is what the server holds.
@@ -51,7 +57,10 @@ def load_servers(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as f:
         raw = json.load(f)
     defaults = raw.get("defaults", {})
-    models = {key: {**defaults, **spec} for key, spec in raw["models"].items()}
+    models = {}
+    for key, spec in raw["models"].items():
+        merged = {**defaults, **spec}
+        models[key] = {**merged, **merged["placements"][0]} if merged.get("placements") else merged
     return {"defaults": defaults, "models": models, "catalog": build_catalog(models, path)}
 
 
@@ -186,15 +195,48 @@ def render_all(servers: Mapping[str, Any], *, jobs: bool) -> list[dict[str, Any]
     return out
 
 
+def _job_ended(job: Any) -> str | None:
+    """Return why a Job has ended (it failed, hit its deadline, or its pod exited), or None while it runs."""
+    for c in (job.status.conditions if job.status else None) or []:
+        if c.type in ("Failed", "Complete") and c.status == "True":
+            return f"its Job {'failed' if c.type == 'Failed' else 'completed'} ({c.reason or 'no reason given'})"
+    return None
+
+
+def _pod_ready(pod: Any) -> bool:
+    return any(c.type == "Ready" and c.status == "True" for c in (pod.status.conditions or []))
+
+
+def _pod_unschedulable(pod: Any) -> bool:
+    return any(
+        c.type == "PodScheduled" and c.status == "False" and c.reason == "Unschedulable"
+        for c in (pod.status.conditions or [])
+    )
+
+
+def _pod_stopped(pod: Any) -> str | None:
+    """Return why a pod has stopped (its container's reason and exit code), or None while it runs."""
+    phase = pod.status.phase
+    if phase not in ("Failed", "Succeeded"):
+        return None
+    for status in pod.status.container_statuses or []:
+        terminated = status.state.terminated if status.state else None
+        if terminated is not None:
+            return f"its pod stopped: {terminated.reason or 'exited'} (exit code {terminated.exit_code})"
+    return f"its pod stopped: {pod.status.reason or phase}"
+
+
 class JobActuator:
     """Brings a model up by creating its vLLM Job and down by deleting it.
 
     Implements the Actuator protocol of pickspin.live.actuator. Only the Jobs named in the server file
-    are ever created or deleted. wait_ready polls every poll_s seconds and gives up with TimeoutError
-    after timeout_s; the load times it measures are kept in measured. phases keeps, for every load, how
-    the time split between waiting for a node (scheduled_s), starting the container including the image
-    pull (container_start_s) and starting vLLM, including reading the weights (server_start_s), taken
-    from the pod's own timestamps.
+    are ever created or deleted. wait_ready polls every poll_s seconds; it raises RuntimeError as soon
+    as the server is gone for good (failure() says why) and TimeoutError after timeout_s. The load
+    times it measures are kept in measured. phases keeps, for every load, how the time split between
+    waiting for a node (scheduled_s), starting the container including the image pull
+    (container_start_s) and starting vLLM, including reading the weights (server_start_s), taken from
+    the pod's own timestamps, and the GPUs the server got. placement[m] is the index of the placement
+    model m runs in next (see the module docstring).
     """
 
     def __init__(
@@ -222,37 +264,65 @@ class JobActuator:
         self.timeout_s = timeout_s
         self.measured: dict[str, list[float]] = {}
         self.phases: dict[str, list[dict[str, float]]] = {}
+        self.placement: dict[str, int] = {}
+        self._created: dict[str, float] = {}  # time.monotonic() when each model's Job was created
         self._lock = threading.Lock()
 
     def _name(self, model: str) -> str:
         name: str = self.servers["models"][model]["name"]
         return name
 
-    def _job_exists(self, name: str) -> bool:
+    def _placements(self, model: str) -> list[Mapping[str, Any]]:
+        placements: list[Mapping[str, Any]] = self.servers["models"][model].get("placements") or [{}]
+        return placements
+
+    def spec(self, model: str) -> dict[str, Any]:
+        """Return the model's server spec in its current placement."""
+        placements = self._placements(model)
+        return {**self.servers["models"][model], **placements[self.placement.get(model, 0) % len(placements)]}
+
+    def _next_placement(self, model: str) -> None:
+        placements = self._placements(model)
+        if len(placements) > 1:
+            self.placement[model] = (self.placement.get(model, 0) + 1) % len(placements)
+            log.info("%s moves to placement %d: %s", model, self.placement[model], placements[self.placement[model]])
+
+    def _job_state(self, name: str) -> tuple[str, str | None]:
+        """Return the Job's state, "absent", "deleting", "ended" or "running", and why it ended."""
         try:
             job = self.batch.read_namespaced_job(name, self.namespace)
         except self._api_exception as e:
             if e.status == 404:
-                return False
+                return "absent", None
             raise
-        return job.metadata.deletion_timestamp is None
+        if job.metadata.deletion_timestamp is not None:
+            return "deleting", None
+        ended = _job_ended(job)
+        return ("ended", ended) if ended else ("running", None)
+
+    def _pods(self, model: str) -> list[Any]:
+        """Return the pods of the model's Job that are not being deleted."""
+        pods = self.core.list_namespaced_pod(self.namespace, label_selector=f"job-name={self._name(model)}").items
+        return [pod for pod in pods if pod.metadata.deletion_timestamp is None]
 
     def scale(self, model: str, replicas: int) -> None:
-        """Create the model's Job for replicas >= 1; delete it (and its pod) for replicas == 0."""
+        """Create the model's Job for replicas >= 1; delete it (and its pod) for replicas == 0.
+
+        A running Job is kept, and one that has ended (its server failed or exited) is replaced.
+        """
         name = self._name(model)
-        if replicas > 0:
-            if self._job_exists(name):
-                return
-            # A Job that is still being deleted blocks a new one with the same name.
-            while True:
-                try:
-                    self.batch.create_namespaced_job(self.namespace, render_job(model, self.servers["models"][model]))
-                    log.info("created Job %s", name)
-                    return
-                except self._api_exception as e:
-                    if e.status != 409:
-                        raise
-                    time.sleep(self.poll_s)
+        if replicas <= 0:
+            self._delete(name)
+            return
+        state, why = self._job_state(name)
+        if state == "running":
+            return
+        if state == "ended":
+            log.info("replacing Job %s: %s", name, why)
+            self._delete(name)
+        self._create(model)
+
+    def _delete(self, name: str) -> None:
         try:
             self.batch.delete_namespaced_job(name, self.namespace, propagation_policy="Foreground")
             log.info("deleted Job %s", name)
@@ -260,15 +330,25 @@ class JobActuator:
             if e.status != 404:
                 raise
 
+    def _create(self, model: str) -> None:
+        """Create the model's Job in its current placement, waiting while an old one is being deleted."""
+        spec = self.spec(model)
+        deadline = time.monotonic() + self.timeout_s
+        while True:
+            try:
+                self.batch.create_namespaced_job(self.namespace, render_job(model, spec))
+                break
+            except self._api_exception as e:
+                # A Job that is still being deleted blocks a new one with the same name.
+                if e.status != 409 or time.monotonic() > deadline:
+                    raise
+                time.sleep(self.poll_s)
+        self._created[model] = time.monotonic()
+        log.info("created Job %s with %s GPU(s)", spec["name"], spec["gpus"])
+
     def ready_replicas(self, model: str) -> int:
         """Return the number of ready pods of the model's Job."""
-        pods = self.core.list_namespaced_pod(self.namespace, label_selector=f"job-name={self._name(model)}").items
-        return sum(
-            1
-            for pod in pods
-            if pod.metadata.deletion_timestamp is None
-            and any(c.type == "Ready" and c.status == "True" for c in (pod.status.conditions or []))
-        )
+        return sum(1 for pod in self._pods(model) if _pod_ready(pod))
 
     def healthy(self, model: str) -> bool:
         """Return True if the model's vLLM server answers /health with HTTP 200 within 5 seconds."""
@@ -277,11 +357,53 @@ class JobActuator:
         except requests.RequestException:
             return False
 
+    def failure(self, model: str, pods: list[Any] | None = None) -> str | None:
+        """Return why the model's server is gone for good, or None while it may still serve.
+
+        A server is gone once its Job has been deleted or has ended (it failed, hit its deadline or its
+        pod exited), or once its pod has stopped. pods are the Job's pods if the caller has them.
+        """
+        state, why = self._job_state(self._name(model))
+        if state == "absent":
+            return "its Job was deleted"
+        if state == "deleting":
+            return "its Job is being deleted"
+        if why is not None:
+            return why
+        for pod in self._pods(model) if pods is None else pods:
+            stopped = _pod_stopped(pod)
+            if stopped is not None:
+                return stopped
+        return None
+
+    def alive(self, model: str) -> bool:
+        """Return False if the model's server is gone for good (see failure)."""
+        return self.failure(model) is None
+
     def wait_ready(self, model: str, t0: float) -> float:
-        """Block until the model's pod is ready and vLLM answers /health; return and record the load time."""
-        while not (self.ready_replicas(model) >= 1 and self.healthy(model)):
+        """Block until the model's pod is ready and vLLM answers /health; return and record the load time.
+
+        Raises RuntimeError once the server is gone for good and TimeoutError after timeout_s. A model
+        whose pod has waited schedule_patience_s for a node moves to its next placement, if it has
+        one, and a failed load moves it on too, so that the next try uses another placement.
+        """
+        patience = float(self.servers["models"][model].get("schedule_patience_s", 600))
+        while True:
+            pods = self._pods(model)
+            if any(_pod_ready(pod) for pod in pods) and self.healthy(model):
+                break
+            failure = self.failure(model, pods)
+            if failure is not None:
+                self._next_placement(model)
+                raise RuntimeError(f"{model} server failed: {failure}")
             if time.monotonic() - t0 > self.timeout_s:
                 raise TimeoutError(f"{model} not ready after {self.timeout_s}s")
+            waited = time.monotonic() - self._created.get(model, t0)
+            if len(self._placements(model)) > 1 and waited > patience and any(map(_pod_unschedulable, pods)):
+                log.info("%s found no node in %.0f s", model, waited)
+                self._next_placement(model)
+                self._delete(self._name(model))
+                self._create(model)
             time.sleep(self.poll_s)
         took = time.monotonic() - t0
         phases = self._load_phases(model)
@@ -294,10 +416,7 @@ class JobActuator:
 
     def _load_phases(self, model: str) -> dict[str, float]:
         """Split the ready pod's startup into scheduling, container start and server start, in seconds."""
-        pods = self.core.list_namespaced_pod(self.namespace, label_selector=f"job-name={self._name(model)}").items
-        for pod in pods:
-            if pod.metadata.deletion_timestamp is not None:
-                continue
+        for pod in self._pods(model):
             conditions = {c.type: c.last_transition_time for c in (pod.status.conditions or [])}
             statuses = pod.status.container_statuses or []
             running = statuses[0].state.running if statuses and statuses[0].state else None
@@ -309,6 +428,7 @@ class JobActuator:
                 "scheduled_s": (scheduled - created).total_seconds(),
                 "container_start_s": (running.started_at - scheduled).total_seconds(),
                 "server_start_s": (ready - running.started_at).total_seconds(),
+                "gpus": float(self.spec(model)["gpus"]),
             }
         return {}
 

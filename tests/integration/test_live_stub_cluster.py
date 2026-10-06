@@ -195,7 +195,7 @@ def test_reaper_scales_an_idle_model_to_zero_and_the_next_query_brings_it_up_aga
     try:
         first = runner.process(query)
         reaped = wait_until(lambda: (model, 0) in cluster.calls[len(MODELS) :])
-        state_after_reap, ready_after_reap = spin.status(model), runner.ready[model].is_set()
+        state_after_reap, ready_after_reap = spin.status(model), runner.is_ready(model)
         second = runner.process(query)
     finally:
         runner.stop.set()

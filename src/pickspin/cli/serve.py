@@ -3,7 +3,8 @@
 The models come from a server file (deploy/nautilus/servers.json), so replacing or adding a model means
 editing that file. Each model runs as a Kubernetes Job that Spin creates when a request needs it and
 deletes after --cooldown idle seconds; --static instead expects every server to be running already.
-Needs the [classifier] extra, and the [live] extra unless --static.
+The gateway deletes every model's Job when it starts and when it stops (also on SIGTERM), so no server
+outlives it. Needs the [classifier] extra, and the [live] extra unless --static.
 """
 
 from __future__ import annotations
@@ -12,8 +13,10 @@ import argparse
 import logging
 import os
 import random
+import signal
 import time
 from pathlib import Path
+from types import FrameType
 
 from pickspin.config import DEFAULT_SPIN
 from pickspin.paths import Paths, require_file, resolve_path
@@ -62,6 +65,13 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         default=DEFAULT_SPIN.cooldown_s,
         metavar="S",
         help="idle seconds before a model is scaled to zero (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--max-wait",
+        type=float,
+        default=600.0,
+        metavar="S",
+        help="seconds a request waits for a cold model before it gets 503 with Retry-After (default: %(default)s)",
     )
     parser.add_argument(
         "--latency-signal",
@@ -126,7 +136,12 @@ def run(args: argparse.Namespace) -> int:
         actuator=actuator,
         headers=bearer_headers(os.environ.get("VLLM_API_KEY")),
         static=args.static,
+        max_wait_s=args.max_wait,
     )
+    if not args.static:
+        log.info("Scaling every model to zero so the gateway starts COLD ...")
+        gateway.release_all()
+    signal.signal(signal.SIGTERM, _interrupt)  # Kubernetes stops a pod with SIGTERM
     server = serve(gateway, args.host, args.port)
     try:
         server.serve_forever()
@@ -135,4 +150,10 @@ def run(args: argparse.Namespace) -> int:
     finally:
         gateway.stop.set()
         server.server_close()
+        gateway.release_all()
     return 0
+
+
+def _interrupt(signum: int, frame: FrameType | None) -> None:
+    """Turn SIGTERM into KeyboardInterrupt, so the gateway stops the way Ctrl+C stops it."""
+    raise KeyboardInterrupt

@@ -7,6 +7,8 @@ WARM (ready to serve):
     LOADING -> WARM   the weights are loaded; queries that waited are forwarded
     WARM -> COLD      the model has had nothing in flight for T_cooldown seconds; it is scaled to
                       zero and its GPUs are released
+    LOADING/WARM -> COLD   the model's server is lost (its load failed, or it died); the live gateway
+                      uses this to start the model afresh on the next query
 
 Spin keeps the lifecycle state of every model, reports the latency that Pick scores on, and accounts
 for GPU time: a model holds its GPUs from the start of a load until it is scaled to zero. Time is
@@ -267,6 +269,30 @@ class Spin:
             assert st.alloc_since is not None  # a WARM model holds its GPUs
             st.alloc_s += now - st.alloc_since
             st.alloc_since = None
+            return True
+
+    def cancel(self, model: str) -> None:
+        """A pending query gives up before it starts (its model failed to load or took too long)."""
+        with self._lock:
+            self._states[model].pending -= 1
+
+    def lost(self, model: str, now: float) -> bool:
+        """The model's server is gone (its load failed, or it died while WARM): mark the model COLD.
+
+        Its GPUs count as released now, so the next query routed to it is a new cold start. Queries
+        still executing finish as usual. Returns False if the model is already COLD.
+        """
+        with self._lock:
+            st = self._states[model]
+            if st.status is ModelState.COLD:
+                return False
+            if st.load_since is not None:
+                st.load_s += now - st.load_since
+            assert st.alloc_since is not None  # a LOADING or WARM model holds its GPUs
+            st.alloc_s += now - st.alloc_since
+            st.status = ModelState.COLD
+            st.alloc_since = st.load_since = st.ready_eta = None
+            st.idle_since = now
             return True
 
     # --- what Pick sees ------------------------------------------------------------------------

@@ -45,6 +45,10 @@ class Actuator(Protocol):
         """Block until the model can serve; t0 is when its load started. May return the load time."""
         ...
 
+    def alive(self, model: str) -> bool:
+        """Return False if the model's server is gone for good (it failed or was removed)."""
+        ...
+
     def load_estimate(self, model: str, now: float | None = None) -> float:
         """Return the expected cold-start time of the model, in seconds (Spin's load estimator)."""
         ...
@@ -125,6 +129,10 @@ class KubernetesActuator:
             self.measured.setdefault(model, []).append(took)
         log.debug("%s ready after %.1f s", model, took)
         return took
+
+    def alive(self, model: str) -> bool:
+        """Return True: a Deployment replaces a failed pod by itself, so its server is never gone for good."""
+        return True
 
     def load_estimate(self, model: str, now: float | None = None) -> float:
         """Return the mean measured load time of the model, or its stated cold-start time before any.
