@@ -218,7 +218,13 @@ curl http://localhost:8080/v1/chat/completions -H 'Content-Type: application/jso
 
 The response is the model server's reply plus a `pickspin` object with the chosen model, the tier, whether the request
 hit a cold start, and how long it waited. `GET /v1/models` lists the models, `GET /stats` shows the GPU-hours,
-utilization, cold starts and the state of every model, and `GET /healthz` reports liveness. Streaming is not supported.
+utilization, cold starts, measured load times and the state of every model, and `GET /healthz` reports liveness.
+Streaming is not supported.
+
+The gateway keeps itself running. A request waits up to `--max-wait` seconds (600 by default) for a cold model and
+then gets `503` with `Retry-After` while the model keeps loading. A model whose server fails to load, or dies later
+(for example when its Job reaches its deadline), goes back to COLD and the next request starts it again. The gateway
+deletes every model's server when it starts and when it stops, so no GPU is left held by a server nobody routes to.
 
 ### Choosing the models
 
@@ -235,6 +241,16 @@ Add, remove or replace entries, rerun `python deploy/nautilus/render.py` to writ
 map, apply `deploy/nautilus/services.json`, and restart the gateway. Pick only chooses between the models of a
 query's tier, so keep at least one model in every tier.
 
+An entry may also set `env` (environment variables for the server), `extra_args` (more vLLM arguments) and
+`placements`, other ways to run the model on the hardware there is. If no node fits the current placement for
+`schedule_patience_s` seconds, the gateway recreates the server in the next one:
+
+```json
+"qwen2.5_14B": {"name": "bhanu-pickspin-qwen25-14b", "memory": "32Gi", "placements": [
+  {"gpus": 1, "gpu_products": ["NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S"]},
+  {"gpus": 2, "gpu_products": ["NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090"], "env": {"NCCL_P2P_DISABLE": "1"}}]}
+```
+
 ### On NRP Nautilus
 
 Nautilus does not allow Deployments that request GPUs, so each model server runs as a Job that the gateway creates
@@ -248,6 +264,7 @@ kubectl apply -f deploy/nautilus/storage.yaml -f deploy/nautilus/router-rbac.yam
 kubectl create secret generic <hf-secret> --from-literal=HF_TOKEN=...   # set its name in servers.json
 kubectl apply -f deploy/nautilus/download-weights.yaml
 kubectl apply -f deploy/nautilus/services.json -f deploy/nautilus/gateway.yaml
+kubectl port-forward svc/bhanu-pickspin-gateway 8080:8080   # then call http://localhost:8080 as above
 ```
 
 ## Package and paper
