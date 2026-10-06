@@ -173,15 +173,17 @@ hf download bhanuprakashvangala/pickspin-distilbert-complexity --local-dir model
 ### Live experiments on a Kubernetes cluster
 
 You need NVIDIA GPUs (an 80 GB GPU for Gemma-3-27B), the NVIDIA device plugin, a ReadWriteMany storage class, and a
-Hugging Face token with access to the Llama and Gemma weights.
+Hugging Face token with access to the Llama and Gemma weights. Then one command deploys the whole system on your
+cluster, from the chart CI publishes:
 
 ```bash
-kubectl create namespace pick-and-spin
-kubectl -n pick-and-spin create secret generic hf-token --from-literal=HF_TOKEN=$HF_TOKEN
-helm install pick-and-spin deploy/helm/pick-and-spin -n pick-and-spin \
-  --set storage.storageClass=<your-rwx-class>
+helm install pick-and-spin oci://ghcr.io/bhanuprakashvangala/charts/pick-and-spin \
+  -n pick-and-spin --create-namespace --set global.hfToken=$HF_TOKEN
 kubectl -n pick-and-spin port-forward svc/pick-and-spin-gateway 8080:8080   # the gateway, see "Run it as a service"
 ```
+
+If the cluster's default storage class is not ReadWriteMany, add `--set storage.storageClass=<your-rwx-class>`. From
+a checkout, use `deploy/helm/pick-and-spin` in place of the `oci://` address.
 
 `deploy/helm/pick-and-spin` is an umbrella chart. It holds the model catalog (`global.models`), the shared weight
 cache and the ServiceAccount allowed to scale the model Deployments, and two subcharts: `model-servers`, one vLLM

@@ -19,8 +19,10 @@ global:
     qwen25-14b:  {key: qwen2.5_14B,  hfModel: Qwen/Qwen2.5-14B-Instruct,        gpus: 1, memory: 48Gi, maxModelLen: 4096}
     gemma3-27b:  {key: gemma3_27B,   hfModel: google/gemma-3-27b-it,            gpus: 1, memory: 96Gi, maxModelLen: 4096}
 
-  # Name of an existing Secret holding HF_TOKEN (needed for gated Llama/Gemma weights).
-  # kubectl create secret generic hf-token --from-literal=HF_TOKEN=...
+  # Hugging Face token for the gated Llama and Gemma weights. Give it at install time
+  # (--set global.hfToken=$HF_TOKEN) and the chart creates the Secret named hfTokenSecret; leave it
+  # empty to use a Secret of that name that already exists.
+  hfToken: ""
   hfTokenSecret: hf-token
 
   # The gateway and the benchmark router (deploy/router-job.yaml) run as this ServiceAccount, which may

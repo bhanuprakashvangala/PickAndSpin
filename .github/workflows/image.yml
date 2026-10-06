@@ -1,7 +1,8 @@
 name: Image
 
 # Builds deploy/Dockerfile and pushes it to ghcr.io/<owner>/pick-and-spin, tagged with the branch, the
-# commit (sha-<short>), the version of a v* tag, and latest for the default branch. Pull requests only build.
+# commit (sha-<short>), the version of a v* tag, and latest for the default branch, and publishes the Helm
+# umbrella chart to oci://ghcr.io/<owner>/charts from the default branch and v* tags. Pull requests only build.
 on:
   push:
     branches: [main, nautilus]
@@ -44,3 +45,15 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  chart:
+    runs-on: ubuntu-latest
+    needs: image
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+      - run: helm lint deploy/helm/pick-and-spin
+      - run: helm package deploy/helm/pick-and-spin --destination dist
+      - if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push dist/pick-and-spin-*.tgz "oci://ghcr.io/${{ github.repository_owner }}/charts"
