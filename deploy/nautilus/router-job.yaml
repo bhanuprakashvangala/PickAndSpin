@@ -6,7 +6,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: bhanu-pickspin-router-smoke
+  name: bhanu-pickspin-router-smoke-2
 spec:
   backoffLimit: 0
   activeDeadlineSeconds: 28800
@@ -31,7 +31,7 @@ spec:
           ls -l "/results/$RUN_NAME"
         env:
         - {name: GIT_REF, value: nautilus}
-        - {name: RUN_NAME, value: smoke-200}
+        - {name: RUN_NAME, value: smoke-200-b}
         - {name: LIMIT, value: "200"}
         - {name: WORKERS, value: "20"}
         - {name: EXTRA_ARGS, value: ""}

@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from pickspin.config import DEFAULT_SPIN, MODELS, Tier
+from pickspin.config import DEFAULT_SPIN, MODELS, ModelSpec, Tier, tiers_of
 from pickspin.data import Query, load_queries
 from pickspin.live.actuator import Actuator, KubernetesActuator
 from pickspin.live.vllm import ChatResult, Endpoint, bearer_headers, call_vllm, load_endpoints
@@ -118,87 +118,62 @@ class LiveRecord:
         return json.dumps(dataclasses.asdict(self), ensure_ascii=False)
 
 
-class LiveRunner:
-    """The per-query mechanics of a live run: bring-up of cold models, the reaper and query processing.
+class ModelLifecycle:
+    """Spin's side of a live deployment: bring-up of cold models, the reaper and waiting for a model.
 
     clock returns the current time in seconds (time.monotonic in a real run) and is the time Spin sees.
-    chat sends one query to an endpoint, like call_vllm. The actuator scales the models; only a static
-    run may go without one, and a static run never calls it.
+    The actuator scales the models; only a static deployment may go without one, and it never calls it.
 
-    ready[m] is set while queries for model m may be sent: always in a static run, otherwise from the
-    end of the model's bring-up until the reaper scales it to zero. scale_lock[m] keeps a bring-up and
-    a scale-down of the same model apart. Setting stop ends the reaper thread.
+    ready[m] is set while queries for model m may be sent: always in a static deployment, otherwise
+    from the end of the model's bring-up until the reaper scales it to zero. scale_lock[m] keeps a
+    bring-up and a scale-down of the same model apart. Setting stop ends the reaper thread. Both the
+    benchmark replay (LiveRunner) and the gateway (pickspin.live.gateway) build on this class.
     """
 
-    config: LiveConfig
-    pick: Pick
     spin: Spin
-    endpoints: Mapping[str, Endpoint]
-    headers: Mapping[str, str]
     actuator: Actuator | None
     clock: Callable[[], float]
-    chat: Callable[[Endpoint, str, int, Mapping[str, str]], ChatResult]
+    static: bool
+    reaper_interval_s: float
     ready: dict[str, threading.Event]
     scale_lock: dict[str, threading.Lock]
     stop: threading.Event
 
     def __init__(
         self,
-        config: LiveConfig,
         *,
-        pick: Pick,
         spin: Spin,
-        endpoints: Mapping[str, Endpoint],
-        headers: Mapping[str, str],
         actuator: Actuator | None,
+        static: bool,
         clock: Callable[[], float] = time.monotonic,
-        chat: Callable[[Endpoint, str, int, Mapping[str, str]], ChatResult] = call_vllm,
+        reaper_interval_s: float = 5.0,
     ) -> None:
-        if actuator is None and not config.static:
+        if actuator is None and not static:
             raise ValueError("a live run that scales models needs an actuator; only a static run can do without")
-        self.config = config
-        self.pick = pick
         self.spin = spin
-        self.endpoints = endpoints
-        self.headers = headers
         self.actuator = actuator
+        self.static = static
         self.clock = clock
-        self.chat = chat
-        self.ready = {m: threading.Event() for m in MODELS}
-        self.scale_lock = {m: threading.Lock() for m in MODELS}
-        if config.static:
+        self.reaper_interval_s = reaper_interval_s
+        self.ready = {m: threading.Event() for m in spin.models}
+        self.scale_lock = {m: threading.Lock() for m in spin.models}
+        if static:
             for e in self.ready.values():
                 e.set()
         self.stop = threading.Event()
 
-    def prepare(self) -> None:
-        """Scale every model to zero and wait until none is ready, so the run starts COLD.
-
-        Models are scaled in MODELS order, then the ready replicas are polled every scale_down_poll_s
-        seconds. A static run does nothing here.
-        """
-        if self.config.static:
-            return
-        actuator = self.actuator
-        assert actuator is not None  # __init__ requires an actuator unless the run is static
-        log.info("Scaling every model to zero so the run starts COLD ...")
-        for m in MODELS:
-            actuator.scale(m, 0)
-        while any(actuator.ready_replicas(m) for m in MODELS):
-            time.sleep(self.config.scale_down_poll_s)
-
     def start_reaper(self) -> None:
         """Start the daemon thread that scales idle models to zero, until stop is set.
 
-        It calls reap_once() every reaper_interval_s seconds. A static run starts no reaper.
+        It calls reap_once() every reaper_interval_s seconds. A static deployment starts no reaper.
         """
-        if self.config.static:
+        if self.static:
             return
         threading.Thread(target=self._reap_until_stopped, daemon=True).start()
 
     def _reap_until_stopped(self) -> None:
         """The reaper thread's loop."""
-        while not self.stop.wait(self.config.reaper_interval_s):
+        while not self.stop.wait(self.reaper_interval_s):
             self.reap_once()
 
     def reap_once(self) -> list[str]:
@@ -236,6 +211,73 @@ class LiveRunner:
             self.spin.loaded(model, self.clock())
             self.ready[model].set()
 
+    def acquire(self, model: str, now: float) -> ModelState:
+        """Count a query as routed to model and wait until the model can serve it.
+
+        Returns the model's state when the query arrived. Only a query that finds its model COLD starts
+        the bring-up, in a daemon thread; every query whose model is not WARM yet waits until it is ready.
+        """
+        before = self.spin.request(model, now)
+        if before is ModelState.COLD:
+            threading.Thread(target=self.bring_up, args=(model,), daemon=True).start()
+        if before is not ModelState.WARM:
+            self.ready[model].wait()
+        return before
+
+
+class LiveRunner(ModelLifecycle):
+    """The per-query mechanics of a live benchmark run on top of ModelLifecycle.
+
+    chat sends one query to an endpoint, like call_vllm.
+    """
+
+    config: LiveConfig
+    pick: Pick
+    endpoints: Mapping[str, Endpoint]
+    headers: Mapping[str, str]
+    chat: Callable[[Endpoint, str, int, Mapping[str, str]], ChatResult]
+
+    def __init__(
+        self,
+        config: LiveConfig,
+        *,
+        pick: Pick,
+        spin: Spin,
+        endpoints: Mapping[str, Endpoint],
+        headers: Mapping[str, str],
+        actuator: Actuator | None,
+        clock: Callable[[], float] = time.monotonic,
+        chat: Callable[[Endpoint, str, int, Mapping[str, str]], ChatResult] = call_vllm,
+    ) -> None:
+        super().__init__(
+            spin=spin,
+            actuator=actuator,
+            static=config.static,
+            clock=clock,
+            reaper_interval_s=config.reaper_interval_s,
+        )
+        self.config = config
+        self.pick = pick
+        self.endpoints = endpoints
+        self.headers = headers
+        self.chat = chat
+
+    def prepare(self) -> None:
+        """Scale every model to zero and wait until none is ready, so the run starts COLD.
+
+        Models are scaled in Spin's model order, then the ready replicas are polled every
+        scale_down_poll_s seconds. A static run does nothing here.
+        """
+        if self.config.static:
+            return
+        actuator = self.actuator
+        assert actuator is not None  # __init__ requires an actuator unless the run is static
+        log.info("Scaling every model to zero so the run starts COLD ...")
+        for m in self.spin.models:
+            actuator.scale(m, 0)
+        while any(actuator.ready_replicas(m) for m in self.spin.models):
+            time.sleep(self.config.scale_down_poll_s)
+
     def process(self, query: Query) -> LiveRecord:
         """Route one query, wait for its model if needed, send it and record the outcome.
 
@@ -246,11 +288,7 @@ class LiveRunner:
         t_arrive = self.clock()
         route = self.pick.route(query.query, t_arrive)
         m = route.model
-        before = self.spin.request(m, t_arrive)
-        if before is ModelState.COLD:
-            threading.Thread(target=self.bring_up, args=(m,), daemon=True).start()
-        if before is not ModelState.WARM:
-            self.ready[m].wait()
+        before = self.acquire(m, t_arrive)
         t_start = self.clock()
         self.spin.start(m, t_start)
         ok, text, tokens, infer_s = self.chat(self.endpoints[m], query.query, self.config.max_tokens, self.headers)
@@ -335,26 +373,34 @@ def run_live(
     """
     endpoints = load_endpoints(config.endpoints)
     headers = bearer_headers(config.api_key)
-    if config.static:
-        actuator = None
-    elif actuator is None and config.servers is not None:
+    catalog: Mapping[str, ModelSpec] = MODELS
+    servers = None
+    if config.servers is not None:
         from pickspin.live.jobs import JobActuator, load_servers
 
         servers = load_servers(config.servers)
+        catalog = servers["catalog"]
+    if config.static:
+        actuator = None
+    elif actuator is None and servers is not None:
         timeout_s = float(servers["defaults"].get("load_timeout_s", 3600))
         actuator = JobActuator(servers, endpoints, config.namespace, timeout_s=timeout_s)
     elif actuator is None:
         actuator = KubernetesActuator(endpoints, config.namespace)
     spin = Spin(
+        catalog,
         cooldown_s=config.cooldown_s,
         scale_to_zero=not config.static,
         now=clock(),
         load_estimate=actuator.load_estimate if actuator is not None else None,
+        catalog=catalog,
     )
     if classifier is None:
         # Loaded after Spin's clock started, so a static run's GPU-hours include the load.
         classifier = HybridClassifier.from_pretrained(config.model_dir)
-    pick = Pick(classifier, spin, config.latency_signal, rng=random.Random(config.seed))
+    pick = Pick(
+        classifier, spin, config.latency_signal, rng=random.Random(config.seed), tiers=tiers_of(catalog), models=catalog
+    )
     runner = LiveRunner(
         config, pick=pick, spin=spin, endpoints=endpoints, headers=headers, actuator=actuator, clock=clock
     )

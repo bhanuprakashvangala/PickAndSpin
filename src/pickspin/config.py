@@ -65,10 +65,14 @@ _SPECS: Final[tuple[ModelSpec, ...]] = (
 # The model pool by key, read-only and in paper order.
 MODELS: Final[Mapping[str, ModelSpec]] = MappingProxyType({s.key: s for s in _SPECS})
 
-# The keys of each tier's models, in MODELS order: the candidates Pick chooses between.
-TIERS: Final[Mapping[Tier, tuple[str, ...]]] = MappingProxyType(
-    {t: tuple(k for k, s in MODELS.items() if s.tier is t) for t in Tier}
-)
+
+def tiers_of(catalog: Mapping[str, ModelSpec]) -> Mapping[Tier, tuple[str, ...]]:
+    """Return the keys of each tier's models in catalog order: the candidates Pick chooses between."""
+    return MappingProxyType({t: tuple(k for k, s in catalog.items() if s.tier is t) for t in Tier})
+
+
+# The paper's tiers, in MODELS order.
+TIERS: Final[Mapping[Tier, tuple[str, ...]]] = tiers_of(MODELS)
 
 
 @dataclass(frozen=True, slots=True)

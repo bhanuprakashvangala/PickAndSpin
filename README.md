@@ -204,6 +204,52 @@ set -a; . ./.env; set +a          # export them
 pickspin baseline judge
 ```
 
+## Run it as a service
+
+`pickspin serve` runs Pick and Spin as an OpenAI-compatible gateway in front of the model servers. Send it chat
+completions as you would to any OpenAI-compatible server; with `"model": "auto"` Pick classifies the last user
+message and picks a model, and Spin starts a cold model's server when a request needs it and stops servers that stay
+idle for the cooldown. A request may also name one of the models directly.
+
+```bash
+pickspin serve --servers deploy/nautilus/servers.json --namespace <ns> --port 8080
+curl http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json'   -d '{"model": "auto", "messages": [{"role": "user", "content": "Prove that the square root of 2 is irrational."}]}'
+```
+
+The response is the model server's reply plus a `pickspin` object with the chosen model, the tier, whether the request
+hit a cold start, and how long it waited. `GET /v1/models` lists the models, `GET /stats` shows the GPU-hours,
+utilization, cold starts and the state of every model, and `GET /healthz` reports liveness. Streaming is not supported.
+
+### Choosing the models
+
+The models are not fixed: they come from the server file. Each entry names the Kubernetes Job that serves the model
+and its GPU needs; a model outside the paper's pool also gives its Hugging Face id, tier, weight size and expected
+cold-start time:
+
+```json
+"mistral_7B": {"name": "bhanu-pickspin-mistral-7b", "hf_id": "mistralai/Mistral-7B-Instruct-v0.3",
+               "tier": "MEDIUM", "weight_gb": 15, "cold_start_s": 45, "memory": "24Gi"}
+```
+
+Add, remove or replace entries, rerun `python deploy/nautilus/render.py` to write the matching Services and endpoint
+map, apply `deploy/nautilus/services.json`, and restart the gateway. Pick only chooses between the models of a
+query's tier, so keep at least one model in every tier.
+
+### On NRP Nautilus
+
+Nautilus does not allow Deployments that request GPUs, so each model server runs as a Job that the gateway creates
+and deletes (`src/pickspin/live/jobs.py`); only the CPU-only gateway is a Deployment. `deploy/nautilus/` holds
+everything: `storage.yaml` (weight cache and results volumes), `download-weights.yaml` (fetches the weights once, so
+cold starts read them from Ceph), `router-rbac.yaml` (lets the gateway and router manage the server Jobs),
+`services.json`, `gateway.yaml` and `router-job.yaml` (the benchmark replay with `pickspin live --servers`).
+
+```bash
+kubectl apply -f deploy/nautilus/storage.yaml -f deploy/nautilus/router-rbac.yaml
+kubectl create secret generic <hf-secret> --from-literal=HF_TOKEN=...   # set its name in servers.json
+kubectl apply -f deploy/nautilus/download-weights.yaml
+kubectl apply -f deploy/nautilus/services.json -f deploy/nautilus/gateway.yaml
+```
+
 ## Package and paper
 
 | Paper | Code in `src/pickspin/` |

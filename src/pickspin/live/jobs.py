@@ -23,7 +23,7 @@ from typing import Any
 
 import requests
 
-from pickspin.config import MODELS
+from pickspin.config import MODELS, ModelSpec, Tier
 from pickspin.errors import import_optional
 from pickspin.live.vllm import Endpoint
 
@@ -33,27 +33,55 @@ PORT = 8000
 LABELS = {"app": "pickspin-server"}
 
 
+_SPEC_FIELDS = ("hf_id", "tier", "weight_gb", "cold_start_s")
+
+
 def load_servers(path: Path) -> dict[str, Any]:
-    """Read a server file and return {"defaults": ..., "models": {key: spec merged over the defaults}}."""
+    """Read a server file and return {"defaults", "models", "catalog"}.
+
+    models maps each key to its server spec merged over the defaults. catalog maps each key to a
+    ModelSpec: a key of the paper's pool takes its figures from pickspin.config.MODELS unless the entry
+    overrides them, and any other key must give hf_id, tier, weight_gb and cold_start_s itself (label
+    defaults to the key). gpus always comes from the server spec, since it is what the server holds.
+    The order of the file is the catalog order.
+    """
     with path.open(encoding="utf-8") as f:
         raw = json.load(f)
     defaults = raw.get("defaults", {})
     models = {key: {**defaults, **spec} for key, spec in raw["models"].items()}
-    unknown = sorted(set(models) - set(MODELS))
-    if unknown:
-        raise ValueError(f"unknown model keys in {path}: {', '.join(unknown)}")
-    return {"defaults": defaults, "models": models}
+    return {"defaults": defaults, "models": models, "catalog": build_catalog(models, path)}
+
+
+def build_catalog(models: Mapping[str, Mapping[str, Any]], source: Path | str = "server file") -> dict[str, ModelSpec]:
+    """Return the ModelSpec of every model in server specs, in their order (see load_servers)."""
+    catalog: dict[str, ModelSpec] = {}
+    for key, spec in models.items():
+        base = MODELS.get(key)
+        missing = [f for f in _SPEC_FIELDS if f not in spec] if base is None else []
+        if missing:
+            raise ValueError(f"model {key!r} in {source} is not in the paper's pool and lacks {', '.join(missing)}")
+        catalog[key] = ModelSpec(
+            key=key,
+            label=str(spec.get("label", base.label if base else key)),
+            tier=Tier(spec.get("tier", base.tier if base else "")),
+            hf_id=str(spec.get("hf_id", base.hf_id if base else "")),
+            weight_gb=int(spec.get("weight_gb", base.weight_gb if base else 0)),
+            cold_start_s=int(spec.get("cold_start_s", base.cold_start_s if base else 0)),
+            gpus=int(spec.get("gpus", base.gpus if base else 1)),
+        )
+    return catalog
 
 
 def render_job(key: str, spec: Mapping[str, Any]) -> dict[str, Any]:
     """Return the Job manifest that serves model `key` with vLLM according to its server spec."""
     gpus = int(spec["gpus"])
+    hf_id = spec.get("hf_id") or MODELS[key].hf_id
     resources = {
         "requests": {"cpu": str(spec["cpu"]), "memory": spec["memory"], "nvidia.com/gpu": gpus},
         "limits": {"cpu": str(spec["cpu"]), "memory": spec["memory"], "nvidia.com/gpu": gpus},
     }
     args = [
-        f"--model={MODELS[key].hf_id}",
+        f"--model={hf_id}",
         f"--port={PORT}",
         f"--max-model-len={spec['max_model_len']}",
         f"--gpu-memory-utilization={spec['gpu_memory_utilization']}",
@@ -135,7 +163,11 @@ def render_service(key: str, spec: Mapping[str, Any]) -> dict[str, Any]:
 def render_endpoints(servers: Mapping[str, Any]) -> dict[str, Endpoint]:
     """Return the endpoint map for the servers: model key -> Service URL, served model and Job name."""
     return {
-        key: {"base_url": f"http://{spec['name']}:{PORT}", "model": MODELS[key].hf_id, "deployment": spec["name"]}
+        key: {
+            "base_url": f"http://{spec['name']}:{PORT}",
+            "model": servers["catalog"][key].hf_id,
+            "deployment": spec["name"],
+        }
         for key, spec in servers["models"].items()
     }
 
@@ -280,4 +312,4 @@ class JobActuator:
         """Return the mean measured load time of the model, or its stated cold-start time before any."""
         with self._lock:
             runs = self.measured.get(model)
-            return sum(runs) / len(runs) if runs else float(MODELS[model].cold_start_s)
+            return sum(runs) / len(runs) if runs else float(self.servers["catalog"][model].cold_start_s)

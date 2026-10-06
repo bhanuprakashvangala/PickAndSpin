@@ -10,7 +10,7 @@ latency Spin reports for it, under one of three latency signals:
 """
 
 import random
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from pickspin.config import DEFAULT_ROUTING, TIERS, RoutingParams, Tier
@@ -52,6 +52,7 @@ class Pick:
         rng: random.Random | None = None,
         tiers: Mapping[Tier, Sequence[str]] = TIERS,
         params: RoutingParams = DEFAULT_ROUTING,
+        models: Iterable[str] | None = None,
     ) -> None:
         try:
             self.signal = LatencySignal(signal)
@@ -59,7 +60,10 @@ class Pick:
             raise ValueError(f"unknown latency signal {signal!r}") from None
         self.classifier = classifier
         self.spin = spin
-        self.sampler = ThompsonSampler(tiers=tiers, params=params, rng=rng)
+        if models is None:
+            self.sampler = ThompsonSampler(tiers=tiers, params=params, rng=rng)
+        else:
+            self.sampler = ThompsonSampler(models, tiers=tiers, params=params, rng=rng)
 
     def route(self, query: str, now: float) -> RouteDecision:
         """Classify the query, then select a model for its tier at time now.

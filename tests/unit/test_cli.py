@@ -111,7 +111,7 @@ def tiny_root(tmp_path: Path) -> Path:
 
 def test_commands_are_listed_in_order() -> None:
     [subparsers] = [a for a in build_parser()._actions if isinstance(a, argparse._SubParsersAction)]
-    assert list(subparsers.choices) == ["reproduce", "simulate", "live", "baseline", "classifier"]
+    assert list(subparsers.choices) == ["reproduce", "simulate", "live", "serve", "baseline", "classifier"]
 
 
 @pytest.mark.parametrize(

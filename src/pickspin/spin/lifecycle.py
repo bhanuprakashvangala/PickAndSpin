@@ -27,11 +27,11 @@ advances the shared storage as a side effect, so neither call may be dropped, ca
 import dataclasses
 import enum
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
-from pickspin.config import DEFAULT_SPIN, MODELS
+from pickspin.config import DEFAULT_SPIN, MODELS, ModelSpec
 
 
 class ModelState(enum.StrEnum):
@@ -156,16 +156,24 @@ class Spin:
         scale_to_zero: bool = True,
         now: float = 0.0,
         load_estimate: LoadEstimator | None = None,
+        catalog: Mapping[str, ModelSpec] = MODELS,
     ) -> None:
         self.models = list(models)
         self.cooldown_s = cooldown_s
         self.scale_to_zero = scale_to_zero
-        self.load_estimate = load_estimate or _stated_cold_start
+        self.catalog = catalog
+        if load_estimate is None:
+            load_estimate = _stated_cold_start if catalog is MODELS else self._catalog_cold_start
+        self.load_estimate = load_estimate
         start = ModelState.COLD if scale_to_zero else ModelState.WARM
         self._states = {m: _State(start, now) for m in self.models}
         self._lock = threading.RLock()
         self.t0 = now
         self.queries = 0
+
+    def _catalog_cold_start(self, model: str, now: float) -> float:
+        """The default load estimate for a custom catalog: the model's stated cold-start time."""
+        return float(self.catalog[model].cold_start_s)
 
     # --- transitions -------------------------------------------------------------------------
     def status(self, model: str) -> ModelState:
@@ -296,7 +304,7 @@ class Spin:
                 alloc = st.alloc_s + (now - st.alloc_since if st.alloc_since is not None else 0.0)
                 busy = st.busy_s + (now - st.busy_since if st.busy_since is not None else 0.0)
                 load = st.load_s + (now - st.load_since if st.load_since is not None else 0.0)
-                gpus = MODELS[m].gpus
+                gpus = self.catalog[m].gpus
                 per_model[m] = ModelUsage(
                     gpu_hours=alloc * gpus / 3600,
                     busy_gpu_hours=busy * gpus / 3600,

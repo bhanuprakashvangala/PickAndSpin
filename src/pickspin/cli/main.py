@@ -18,14 +18,14 @@ from pathlib import Path
 from typing import Final
 
 from pickspin import __version__
-from pickspin.cli import baseline, classifier, live, reproduce, simulate
+from pickspin.cli import baseline, classifier, live, reproduce, serve, simulate
 from pickspin.errors import PickSpinError
 
 log = logging.getLogger(__name__)
 
 # The command modules, in the order `pickspin --help` lists them. Each one has register(subparsers),
 # which adds its parser and sets func to the handler that runs it.
-COMMANDS: Final[tuple[types.ModuleType, ...]] = (reproduce, simulate, live, baseline, classifier)
+COMMANDS: Final[tuple[types.ModuleType, ...]] = (reproduce, simulate, live, serve, baseline, classifier)
 
 # The logger configure_logging sets up; every module of the package logs to a child of it.
 _LOGGER: Final = "pickspin"

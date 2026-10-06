@@ -9,7 +9,7 @@ from collections.abc import Callable
 import pytest
 
 from pickspin.config import DEFAULT_SPIN, MODELS
-from pickspin.spin import LatencySignal, ModelState, ModelUsage, Spin, SpinSummary, lifecycle
+from pickspin.spin import LatencySignal, ModelState, ModelUsage, Spin, SpinSummary
 
 COLD, LOADING, WARM = ModelState.COLD, ModelState.LOADING, ModelState.WARM
 
@@ -279,11 +279,10 @@ def test_static_deployment_counts_gpu_time_from_t0(serve: Serve) -> None:
     assert all(u.loading_gpu_hours == 0.0 for u in s.per_model.values())
 
 
-def test_gpu_hours_count_every_gpu_of_a_model(monkeypatch: pytest.MonkeyPatch, serve: Serve) -> None:
+def test_gpu_hours_count_every_gpu_of_a_model(serve: Serve) -> None:
     """Every model of the paper's pool has one GPU; a model on two GPUs holds both while it is up."""
     two_gpus = dataclasses.replace(MODELS["gemma3_27B"], gpus=2)
-    monkeypatch.setattr(lifecycle, "MODELS", {**MODELS, "gemma3_27B": two_gpus})
-    spin = Spin(scale_to_zero=False, now=0.0)
+    spin = Spin(scale_to_zero=False, now=0.0, catalog={**MODELS, "gemma3_27B": two_gpus})
     serve(spin, "gemma3_27B", 0.0, 0.0, 360.0)
     s = spin.summary(3600.0)
     assert s.per_model["gemma3_27B"] == ModelUsage(

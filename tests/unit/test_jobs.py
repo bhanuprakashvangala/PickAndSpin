@@ -25,11 +25,60 @@ def test_server_file_covers_the_catalog_in_order(servers):
     assert all(name.startswith("bhanu-pickspin-") for name in names)
 
 
-def test_unknown_model_key_is_rejected(tmp_path):
+def test_new_model_needs_its_figures(tmp_path):
     bad = tmp_path / "servers.json"
-    bad.write_text(json.dumps({"defaults": {}, "models": {"gpt5": {"name": "x"}}}), encoding="utf-8")
-    with pytest.raises(ValueError, match="gpt5"):
+    bad.write_text(json.dumps({"defaults": {}, "models": {"mistral_7B": {"name": "x"}}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="mistral_7B"):
         load_servers(bad)
+
+
+def test_models_can_be_replaced(tmp_path):
+    custom = tmp_path / "servers.json"
+    custom.write_text(
+        json.dumps(
+            {
+                "defaults": {"gpus": 1},
+                "models": {
+                    "mistral_7B": {
+                        "name": "m7",
+                        "hf_id": "mistralai/Mistral-7B-Instruct-v0.3",
+                        "tier": "MEDIUM",
+                        "weight_gb": 15,
+                        "cold_start_s": 45,
+                        "label": "Mistral-7B",
+                    },
+                    "llama3.2_1B": {"name": "l1", "gpus": 2},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    servers = load_servers(custom)
+    catalog = servers["catalog"]
+    assert list(catalog) == ["mistral_7B", "llama3.2_1B"]
+    assert catalog["mistral_7B"].tier == "MEDIUM"
+    assert catalog["mistral_7B"].hf_id == "mistralai/Mistral-7B-Instruct-v0.3"
+    assert catalog["llama3.2_1B"].hf_id == MODELS["llama3.2_1B"].hf_id
+    assert catalog["llama3.2_1B"].gpus == 2
+    assert render_endpoints(servers)["mistral_7B"]["model"] == "mistralai/Mistral-7B-Instruct-v0.3"
+    assert (
+        "--model=mistralai/Mistral-7B-Instruct-v0.3"
+        in render_job(
+            "mistral_7B",
+            servers["models"]["mistral_7B"]
+            | {
+                "memory": "1Gi",
+                "cpu": 1,
+                "max_model_len": 4096,
+                "gpu_memory_utilization": 0.9,
+                "image": "x",
+                "hf_token_secret": "s",
+                "cache_pvc": "c",
+                "active_deadline_s": 60,
+                "gpu_products": [],
+            },
+        )["spec"]["template"]["spec"]["containers"][0]["args"]
+    )
 
 
 def test_job_follows_nrp_rules(servers):
