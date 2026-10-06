@@ -248,12 +248,14 @@ def test_scale_replaces_a_job_that_has_ended(servers):
 def test_wait_ready_fails_as_soon_as_the_server_stops_and_logs_its_last_lines(servers, caplog):
     oom = SimpleNamespace(reason="OOMKilled", exit_code=137)
     actuator = make_actuator(servers, FakeBatch(), lambda body: [pod("Failed", terminated=oom)])
-    actuator.scale("llama3.2_1B", 1)
-    with pytest.raises(RuntimeError, match=r"its pod stopped: OOMKilled \(exit code 137\)"):
-        actuator.wait_ready("llama3.2_1B", time.monotonic())
+    for key, spec in servers["models"].items():
+        actuator.scale(key, 1)
+        with pytest.raises(RuntimeError, match=r"its pod stopped: OOMKilled \(exit code 137\)"):
+            actuator.wait_ready(key, time.monotonic())
+        # The next try uses the model's next placement, if it has more than one.
+        assert actuator.placement.get(key, 0) == (1 if len(spec.get("placements") or []) > 1 else 0)
     assert actuator.measured == {}
     assert "last 30 lines of pod-0: CUDA error" in caplog.text
-    assert "llama3.2_1B" not in actuator.placement  # a model with one placement stays in it
 
 
 def test_a_model_that_finds_no_node_moves_to_its_next_placement(tmp_path):
