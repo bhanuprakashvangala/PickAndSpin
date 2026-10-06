@@ -7,8 +7,8 @@
   "llama3.2_3B": {"name": "bhanu-pickspin-llama32-3b", "memory": "16Gi"},
   "qwen2.5_7B": {"name": "bhanu-pickspin-qwen25-7b", "memory": "24Gi"},
   "llama3.1_8B": {"name": "bhanu-pickspin-llama31-8b", "memory": "24Gi"},
-  "gemma2_9B": {"name": "bhanu-pickspin-gemma2-9b", "memory": "32Gi", "gpu_products": ["NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S"]},
-  "qwen2.5_14B": {"name": "bhanu-pickspin-qwen25-14b", "memory": "40Gi", "gpu_products": ["NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S"]},
-  "gemma3_27B": {"name": "bhanu-pickspin-gemma3-27b", "memory": "80Gi", "gpus": 2, "cpu": 8, "gpu_products": ["NVIDIA-RTX-A6000", "NVIDIA-L40", "NVIDIA-L40S"]}
+  "gemma2_9B": {"name": "bhanu-pickspin-gemma2-9b", "memory": "32Gi"},
+  "qwen2.5_14B": {"name": "bhanu-pickspin-qwen25-14b", "memory": "40Gi", "gpus": 2, "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4"], "env": {"NCCL_P2P_DISABLE": "1"}},
+  "gemma3_27B": {"name": "bhanu-pickspin-gemma3-27b", "memory": "80Gi", "gpus": 4, "cpu": 8, "gpu_products": ["NVIDIA-A10", "NVIDIA-GeForce-RTX-3090", "NVIDIA-GeForce-RTX-4090", "NVIDIA-L4"], "env": {"NCCL_P2P_DISABLE": "1"}}
  }
 }

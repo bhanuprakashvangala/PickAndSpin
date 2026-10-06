@@ -99,6 +99,8 @@ def test_job_follows_nrp_rules(servers):
             "nodeSelectorTerms"
         ][0]["matchExpressions"][0]["values"]
         assert products == spec["gpu_products"]
+        env = {e["name"]: e.get("value") for e in container["env"]}
+        assert spec.get("env", {}).items() <= env.items()
 
 
 def test_service_selects_the_job_pod(servers):

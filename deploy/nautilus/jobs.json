@@ -838,6 +838,10 @@
              "key": "nvidia.com/gpu.product",
              "operator": "In",
              "values": [
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090",
+              "NVIDIA-GeForce-RTX-4090",
+              "NVIDIA-L4",
               "NVIDIA-RTX-A6000",
               "NVIDIA-L40",
               "NVIDIA-L40S"
@@ -968,9 +972,10 @@
              "key": "nvidia.com/gpu.product",
              "operator": "In",
              "values": [
-              "NVIDIA-RTX-A6000",
-              "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090",
+              "NVIDIA-GeForce-RTX-4090",
+              "NVIDIA-L4"
              ]
             }
            ]
@@ -988,7 +993,7 @@
          "--port=8000",
          "--max-model-len=4096",
          "--gpu-memory-utilization=0.9",
-         "--tensor-parallel-size=1"
+         "--tensor-parallel-size=2"
         ],
         "env": [
          {
@@ -1008,6 +1013,10 @@
             "optional": true
            }
           }
+         },
+         {
+          "name": "NCCL_P2P_DISABLE",
+          "value": "1"
          }
         ],
         "ports": [
@@ -1027,12 +1036,12 @@
          "requests": {
           "cpu": "4",
           "memory": "40Gi",
-          "nvidia.com/gpu": 1
+          "nvidia.com/gpu": 2
          },
          "limits": {
           "cpu": "4",
           "memory": "40Gi",
-          "nvidia.com/gpu": 1
+          "nvidia.com/gpu": 2
          }
         },
         "volumeMounts": [
@@ -1098,9 +1107,10 @@
              "key": "nvidia.com/gpu.product",
              "operator": "In",
              "values": [
-              "NVIDIA-RTX-A6000",
-              "NVIDIA-L40",
-              "NVIDIA-L40S"
+              "NVIDIA-A10",
+              "NVIDIA-GeForce-RTX-3090",
+              "NVIDIA-GeForce-RTX-4090",
+              "NVIDIA-L4"
              ]
             }
            ]
@@ -1118,7 +1128,7 @@
          "--port=8000",
          "--max-model-len=4096",
          "--gpu-memory-utilization=0.9",
-         "--tensor-parallel-size=2"
+         "--tensor-parallel-size=4"
         ],
         "env": [
          {
@@ -1138,6 +1148,10 @@
             "optional": true
            }
           }
+         },
+         {
+          "name": "NCCL_P2P_DISABLE",
+          "value": "1"
          }
         ],
         "ports": [
@@ -1157,12 +1171,12 @@
          "requests": {
           "cpu": "8",
           "memory": "80Gi",
-          "nvidia.com/gpu": 2
+          "nvidia.com/gpu": 4
          },
          "limits": {
           "cpu": "8",
           "memory": "80Gi",
-          "nvidia.com/gpu": 2
+          "nvidia.com/gpu": 4
          }
         },
         "volumeMounts": [

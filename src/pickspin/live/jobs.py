@@ -9,6 +9,9 @@ The server of each model is described in a JSON file (deploy/nautilus/servers.js
 
     {"defaults": {...}, "models": {"<model key>": {"name": ..., "gpus": ..., "gpu_products": [...], ...}}}
 
+A model's entry replaces a default field as a whole (an "env" map in a model replaces the default one).
+"extra_args" are appended to the vLLM arguments and "env" adds environment variables to the server.
+
 render_job and render_service turn one entry into Kubernetes manifests; render_all writes every
 manifest for `kubectl apply`, for example to start all servers for a static run.
 """
@@ -122,6 +125,7 @@ def render_job(key: str, spec: Mapping[str, Any]) -> dict[str, Any]:
                             "secretKeyRef": {"name": spec["hf_token_secret"], "key": "HF_TOKEN", "optional": True}
                         },
                     },
+                    *({"name": name, "value": str(value)} for name, value in spec.get("env", {}).items()),
                 ],
                 "ports": [{"containerPort": PORT}],
                 "readinessProbe": {
