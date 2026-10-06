@@ -3,5 +3,7 @@ image: vllm/vllm-openai:v0.8.5
 imagePullPolicy: IfNotPresent
 startReplicas: 0
 gpuResource: nvidia.com/gpu
+cpu: 2
 nodeSelector: {}
 tolerations: []
+affinity: {}

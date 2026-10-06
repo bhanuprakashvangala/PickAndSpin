@@ -2,7 +2,7 @@ apiVersion: v2
 name: pick-and-spin
 description: Umbrella chart for Pick and Spin, the Pick router and Spin orchestrator in front of nine vLLM model servers (1B-27B).
 type: application
-version: 2.1.1
+version: 2.1.2
 appVersion: "2.1"
 # The subcharts share the model catalog through .Values.global.models (values.yaml).
 dependencies:

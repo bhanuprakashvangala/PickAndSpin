@@ -70,9 +70,9 @@ def template_port(pattern: str, template: str) -> int:
 def test_helm_chart_serves_what_the_endpoint_map_expects(deploy, endpoints):
     chart = deploy / CHART
     models = load_yaml(chart / "values.yaml")["global"]["models"]
-    by_key = {spec["key"]: (name, spec) for name, spec in models.items()}
+    by_key = {spec["key"]: (spec["name"], spec) for spec in models}
     assert set(by_key) == set(MODELS)
-    # One Deployment and one Service per model, both named after the entry of models in values.yaml.
+    # One Deployment and one Service per model, both named after the entry's name in values.yaml.
     template = (chart / "charts" / "model-servers" / "templates" / "models.yaml").read_text(encoding="utf-8")
     vllm_port = template_port(r"--port=(\d+)", template)
     service_port = template_port(r"kind: Service\b.*?- port: (\d+)", template)
@@ -125,4 +125,4 @@ def test_gateway_serves_the_endpoint_map_with_pickspin_serve(deploy):
     assert "configMap: {name: {{ .Release.Name }}-gateway-endpoints}" in deployment
     assert "serviceAccountName: {{ .Values.global.serviceAccount }}" in deployment
     configmap = (templates / "configmap.yaml").read_text(encoding="utf-8")
-    assert 'printf "http://%s:8000" $name' in configmap  # the Service name and vLLM port of each model
+    assert 'printf "http://%s:8000" $m.name' in configmap  # the Service name and vLLM port of each model

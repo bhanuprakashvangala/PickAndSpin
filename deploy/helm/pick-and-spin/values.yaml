@@ -5,19 +5,20 @@
 # This chart holds what both share: the model catalog, the weight cache and the ServiceAccount.
 
 global:
-  # Nine models from three families. The Deployment and Service of each are named after its entry;
-  # key is the model's id in pickspin.config.MODELS. gemma3-27b holds 54 GB of bf16 weights and needs
-  # an 80 GB GPU (A100 80GB or H100).
+  # Nine models from three families. Each entry becomes a Deployment and a Service named after it; key is
+  # the model's id in pickspin.config.MODELS. This is a list, so a values file that sets global.models
+  # replaces the whole catalog (Helm merges maps but replaces lists). gemma3-27b holds 54 GB of bf16
+  # weights and needs an 80 GB GPU (A100 80GB or H100).
   models:
-    llama32-1b:  {key: llama3.2_1B,  hfModel: meta-llama/Llama-3.2-1B-Instruct, gpus: 1, memory: 16Gi, maxModelLen: 4096}
-    qwen25-1-5b: {key: qwen2.5_1.5B, hfModel: Qwen/Qwen2.5-1.5B-Instruct,       gpus: 1, memory: 16Gi, maxModelLen: 4096}
-    gemma2-2b:   {key: gemma2_2B,    hfModel: google/gemma-2-2b-it,             gpus: 1, memory: 16Gi, maxModelLen: 4096}
-    llama32-3b:  {key: llama3.2_3B,  hfModel: meta-llama/Llama-3.2-3B-Instruct, gpus: 1, memory: 24Gi, maxModelLen: 4096}
-    qwen25-7b:   {key: qwen2.5_7B,   hfModel: Qwen/Qwen2.5-7B-Instruct,         gpus: 1, memory: 32Gi, maxModelLen: 4096}
-    llama31-8b:  {key: llama3.1_8B,  hfModel: meta-llama/Llama-3.1-8B-Instruct, gpus: 1, memory: 32Gi, maxModelLen: 4096}
-    gemma2-9b:   {key: gemma2_9B,    hfModel: google/gemma-2-9b-it,             gpus: 1, memory: 32Gi, maxModelLen: 4096}
-    qwen25-14b:  {key: qwen2.5_14B,  hfModel: Qwen/Qwen2.5-14B-Instruct,        gpus: 1, memory: 48Gi, maxModelLen: 4096}
-    gemma3-27b:  {key: gemma3_27B,   hfModel: google/gemma-3-27b-it,            gpus: 1, memory: 96Gi, maxModelLen: 4096}
+    - {name: llama32-1b, key: llama3.2_1B,  hfModel: meta-llama/Llama-3.2-1B-Instruct, gpus: 1, memory: 16Gi, maxModelLen: 4096}
+    - {name: qwen25-1-5b, key: qwen2.5_1.5B, hfModel: Qwen/Qwen2.5-1.5B-Instruct,       gpus: 1, memory: 16Gi, maxModelLen: 4096}
+    - {name: gemma2-2b, key: gemma2_2B,    hfModel: google/gemma-2-2b-it,             gpus: 1, memory: 16Gi, maxModelLen: 4096}
+    - {name: llama32-3b, key: llama3.2_3B,  hfModel: meta-llama/Llama-3.2-3B-Instruct, gpus: 1, memory: 24Gi, maxModelLen: 4096}
+    - {name: qwen25-7b, key: qwen2.5_7B,   hfModel: Qwen/Qwen2.5-7B-Instruct,         gpus: 1, memory: 32Gi, maxModelLen: 4096}
+    - {name: llama31-8b, key: llama3.1_8B,  hfModel: meta-llama/Llama-3.1-8B-Instruct, gpus: 1, memory: 32Gi, maxModelLen: 4096}
+    - {name: gemma2-9b, key: gemma2_9B,    hfModel: google/gemma-2-9b-it,             gpus: 1, memory: 32Gi, maxModelLen: 4096}
+    - {name: qwen25-14b, key: qwen2.5_14B,  hfModel: Qwen/Qwen2.5-14B-Instruct,        gpus: 1, memory: 48Gi, maxModelLen: 4096}
+    - {name: gemma3-27b, key: gemma3_27B,   hfModel: google/gemma-3-27b-it,            gpus: 1, memory: 96Gi, maxModelLen: 4096}
 
   # Hugging Face token for the gated Llama and Gemma weights. Give it at install time
   # (--set global.hfToken=$HF_TOKEN) and the chart creates the Secret named hfTokenSecret; leave it
@@ -28,6 +29,10 @@ global:
   # The gateway and the benchmark router (deploy/router-job.yaml) run as this ServiceAccount, which may
   # scale the model Deployments. Run only one of them at a time: both scale the same Deployments.
   serviceAccount: pick-and-spin-router
+
+  # An existing ReadWriteMany claim to use as the weight cache instead of the one this chart creates
+  # (set storage.create=false with it).
+  cacheClaim: ""
 
 # Shared weight cache (Hugging Face cache on a ReadWriteMany volume), mounted by every model server.
 storage:
@@ -44,8 +49,10 @@ model-servers:
   # (then run the gateway with --set gateway.static=true).
   startReplicas: 0
   gpuResource: nvidia.com/gpu
+  cpu: 2               # CPU cores per model server (requests = limits); a model entry may set its own cpu
   nodeSelector: {}
   tolerations: []
+  affinity: {}         # e.g. a nodeAffinity on nvidia.com/gpu.product to pick the GPU types
 
 gateway:
   enabled: true

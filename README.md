@@ -226,8 +226,25 @@ pick-and-spin` removes everything except the Secret and the weight cache volume.
 cache and the ServiceAccount allowed to scale the model Deployments, and two subcharts: `model-servers`, one vLLM
 Deployment and Service per model, and `gateway`, Pick and Spin itself (`pickspin serve` on the endpoint map built from
 the same catalog). Every model Deployment starts at zero replicas, and the gateway scales them as requests need them.
-Change a model in `global.models`, turn a subchart off with `--set gateway.enabled=false`, or install the models
-running with `--set model-servers.startReplicas=1 --set gateway.static=true`.
+Turn a subchart off with `--set gateway.enabled=false`, or install the models running with
+`--set model-servers.startReplicas=1 --set gateway.static=true`.
+
+To serve fewer or other models of the paper's pool, list them in your own values file; `global.models` is a list, so
+yours replaces the default catalog rather than adding to it:
+
+```yaml
+# my-values.yaml, used with: helm install ... -f my-values.yaml
+global:
+  models:
+    - {name: qwen25-1-5b, key: qwen2.5_1.5B, hfModel: Qwen/Qwen2.5-1.5B-Instruct, gpus: 1, memory: 12Gi, maxModelLen: 4096}
+    - {name: qwen25-7b,   key: qwen2.5_7B,   hfModel: Qwen/Qwen2.5-7B-Instruct,   gpus: 1, memory: 24Gi, maxModelLen: 4096}
+  cacheClaim: my-existing-rwx-claim     # optional: reuse a weight cache volume (with storage.create=false)
+model-servers:
+  cpu: 2                                # CPU cores per model server
+  affinity: {}                          # e.g. a nodeAffinity on nvidia.com/gpu.product to pick GPU types
+```
+
+Keep at least one model per tier, since Pick only chooses among the models of a query's tier.
 
 For the paper's benchmark, turn the gateway off (both scale the same Deployments) and start the router Job; it runs
 `pickspin live` as the chart's ServiceAccount. Its image, `ghcr.io/bhanuprakashvangala/pick-and-spin`, is built from
