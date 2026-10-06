@@ -6,9 +6,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: bhanu-pickspin-router-smoke-2
+  name: bhanu-pickspin-router-smoke-3
 spec:
-  backoffLimit: 0
+  backoffLimit: 2  # a lost node retries; existing server Jobs are adopted
   activeDeadlineSeconds: 28800
   template:
     spec:
@@ -31,7 +31,7 @@ spec:
           ls -l "/results/$RUN_NAME"
         env:
         - {name: GIT_REF, value: nautilus}
-        - {name: RUN_NAME, value: smoke-200-b}
+        - {name: RUN_NAME, value: smoke-200-c}
         - {name: LIMIT, value: "200"}
         - {name: WORKERS, value: "20"}
         - {name: EXTRA_ARGS, value: ""}
