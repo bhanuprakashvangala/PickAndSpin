@@ -155,7 +155,10 @@ class JobActuator:
 
     Implements the Actuator protocol of pickspin.live.actuator. Only the Jobs named in the server file
     are ever created or deleted. wait_ready polls every poll_s seconds and gives up with TimeoutError
-    after timeout_s; the load times it measures are kept in measured.
+    after timeout_s; the load times it measures are kept in measured. phases keeps, for every load, how
+    the time split between waiting for a node (scheduled_s), starting the container including the image
+    pull (container_start_s) and starting vLLM, including reading the weights (server_start_s), taken
+    from the pod's own timestamps.
     """
 
     def __init__(
@@ -182,6 +185,7 @@ class JobActuator:
         self.poll_s = poll_s
         self.timeout_s = timeout_s
         self.measured: dict[str, list[float]] = {}
+        self.phases: dict[str, list[dict[str, float]]] = {}
         self._lock = threading.Lock()
 
     def _name(self, model: str) -> str:
@@ -244,10 +248,33 @@ class JobActuator:
                 raise TimeoutError(f"{model} not ready after {self.timeout_s}s")
             time.sleep(self.poll_s)
         took = time.monotonic() - t0
+        phases = self._load_phases(model)
         with self._lock:
             self.measured.setdefault(model, []).append(took)
-        log.info("%s ready after %.1f s", model, took)
+            if phases:
+                self.phases.setdefault(model, []).append(phases)
+        log.info("%s ready after %.1f s %s", model, took, phases)
         return took
+
+    def _load_phases(self, model: str) -> dict[str, float]:
+        """Split the ready pod's startup into scheduling, container start and server start, in seconds."""
+        pods = self.core.list_namespaced_pod(self.namespace, label_selector=f"job-name={self._name(model)}").items
+        for pod in pods:
+            if pod.metadata.deletion_timestamp is not None:
+                continue
+            conditions = {c.type: c.last_transition_time for c in (pod.status.conditions or [])}
+            statuses = pod.status.container_statuses or []
+            running = statuses[0].state.running if statuses and statuses[0].state else None
+            created = pod.metadata.creation_timestamp
+            scheduled, ready = conditions.get("PodScheduled"), conditions.get("Ready")
+            if None in (created, scheduled, ready) or running is None or running.started_at is None:
+                continue
+            return {
+                "scheduled_s": (scheduled - created).total_seconds(),
+                "container_start_s": (running.started_at - scheduled).total_seconds(),
+                "server_start_s": (ready - running.started_at).total_seconds(),
+            }
+        return {}
 
     def load_estimate(self, model: str, now: float | None = None) -> float:
         """Return the mean measured load time of the model, or its stated cold-start time before any."""

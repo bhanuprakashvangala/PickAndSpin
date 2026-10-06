@@ -305,6 +305,9 @@ class LiveRunner:
         usage = self.spin.summary(self.clock())
         summary = usage.to_dict()
         summary["measured_load_s"] = self.actuator.measured if self.actuator is not None else {}
+        phases = getattr(self.actuator, "phases", None)
+        if phases is not None:
+            summary["load_phases"] = phases
         with Path(f"{stem}_summary.json").open("w", encoding="utf-8") as f:
             json.dump(summary, f, indent=1)
         log.info(
@@ -337,7 +340,9 @@ def run_live(
     elif actuator is None and config.servers is not None:
         from pickspin.live.jobs import JobActuator, load_servers
 
-        actuator = JobActuator(load_servers(config.servers), endpoints, config.namespace)
+        servers = load_servers(config.servers)
+        timeout_s = float(servers["defaults"].get("load_timeout_s", 3600))
+        actuator = JobActuator(servers, endpoints, config.namespace, timeout_s=timeout_s)
     elif actuator is None:
         actuator = KubernetesActuator(endpoints, config.namespace)
     spin = Spin(
