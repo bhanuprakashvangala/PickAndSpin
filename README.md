@@ -441,11 +441,16 @@ Routed run (Table I). Latency includes the cold-start penalty.
 ## Citation
 
 ```bibtex
-@inproceedings{vangala2026pickandspin,
-  title     = {Pick and Spin: Cold-Start-Aware Routing for Self-Hosted {LLM} Serving},
+@inproceedings{vangala2026pickspin,
   author    = {Vangala, Bhanu Prakash and Malik, Tanu},
-  booktitle = {Proceedings of the IEEE International Conference on Cloud Computing (CLOUD)},
-  year      = {2026}
+  title     = {Pick and Spin: Cold-Start-Aware Routing for Self-Hosted LLM Serving},
+  booktitle = {2026 IEEE 19th International Conference on Cloud Computing (CLOUD)},
+  publisher = {IEEE},
+  year      = {2026},
+  month     = jul,
+  pages     = {388--394},
+  doi       = {10.1109/cloud72782.2026.00050},
+  url       = {https://doi.org/10.1109/cloud72782.2026.00050}
 }
 ```
 

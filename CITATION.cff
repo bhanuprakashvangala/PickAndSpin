@@ -12,11 +12,17 @@ authors:
 preferred-citation:
   type: conference-paper
   title: "Pick and Spin: Cold-Start-Aware Routing for Self-Hosted LLM Serving"
-  collection-title: "IEEE International Conference on Cloud Computing (CLOUD)"
-  year: 2026
-  url: "https://bhanuprakashvangala.github.io/files/papers/pick-and-spin.pdf"
   authors:
     - family-names: Vangala
       given-names: Bhanu Prakash
     - family-names: Malik
       given-names: Tanu
+  collection-title: "2026 IEEE 19th International Conference on Cloud Computing (CLOUD)"
+  publisher:
+    name: IEEE
+  year: 2026
+  month: 7
+  start: 388
+  end: 394
+  doi: "10.1109/cloud72782.2026.00050"
+  url: "https://doi.org/10.1109/cloud72782.2026.00050"
