@@ -180,7 +180,8 @@ class FakeCore:
         return SimpleNamespace(items=self.pods_of(body) if body else [])
 
     def read_namespaced_pod_log(self, name, namespace, tail_lines):
-        return f"last {tail_lines} lines of {name}: CUDA error: no kernel image is available"
+        # Some versions of the client return the raw bytes of the body.
+        return f"last {tail_lines} lines of {name}: CUDA error: no kernel image is available".encode()
 
 
 def pod(phase="Pending", *, ready=False, unschedulable=False, terminated=None):
@@ -255,7 +256,8 @@ def test_wait_ready_fails_as_soon_as_the_server_stops_and_logs_its_last_lines(se
         # The next try uses the model's next placement, if it has more than one.
         assert actuator.placement.get(key, 0) == (1 if len(spec.get("placements") or []) > 1 else 0)
     assert actuator.measured == {}
-    assert "last 30 lines of pod-0: CUDA error" in caplog.text
+    assert "last 120 lines of pod-0: CUDA error" in caplog.text
+    assert "b'" not in caplog.text  # decoded, not the repr of bytes
 
 
 def test_a_model_that_finds_no_node_moves_to_its_next_placement(tmp_path):

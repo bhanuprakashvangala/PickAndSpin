@@ -380,8 +380,11 @@ class JobActuator:
         """Return False if the model's server is gone for good (see failure)."""
         return self.failure(model) is None
 
-    def _log_tail(self, pods: list[Any], lines: int = 30) -> None:
-        """Log the last lines of a stopped server pod, so a failed load can be diagnosed once its Job is gone."""
+    def _log_tail(self, pods: list[Any], lines: int = 120) -> None:
+        """Log the last lines of a stopped server pod, so a failed load can be diagnosed once its Job is gone.
+
+        vLLM prints the root cause of a failed start well above its final traceback, hence the many lines.
+        """
         for pod in pods:
             if _pod_stopped(pod) is None:
                 continue
@@ -391,6 +394,8 @@ class JobActuator:
             except self._api_exception as e:
                 log.warning("Could not read the log of %s (HTTP %s)", name, e.status)
                 return
+            if isinstance(tail, bytes):  # some client versions return the raw body
+                tail = tail.decode("utf-8", "replace")
             log.warning("Last lines of %s:\n%s", name, tail)
             return
 
