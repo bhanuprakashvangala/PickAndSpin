@@ -172,18 +172,55 @@ hf download bhanuprakashvangala/pickspin-distilbert-complexity --local-dir model
 
 ### Live experiments on a Kubernetes cluster
 
-You need NVIDIA GPUs (an 80 GB GPU for Gemma-3-27B), the NVIDIA device plugin, a ReadWriteMany storage class, and a
-Hugging Face token with access to the Llama and Gemma weights. Then one command deploys the whole system on your
-cluster, from the chart CI publishes:
+You need:
+
+- NVIDIA GPUs with the NVIDIA device plugin (an 80 GB GPU for Gemma-3-27B; the other models fit on 16-48 GB cards),
+- a ReadWriteMany storage class (CephFS, NFS) for the shared weight cache,
+- `kubectl` and `helm` 3.8 or later pointed at the cluster,
+- a Hugging Face token, set up as below.
+
+#### The Hugging Face token
+
+The Llama and Gemma weights are gated, so the model servers download them with a Hugging Face token. The Qwen models
+need none.
+
+1. Sign in at [huggingface.co](https://huggingface.co) and accept the licence on the
+   [Llama 3.2](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct),
+   [Llama 3.1](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct),
+   [Gemma 2](https://huggingface.co/google/gemma-2-2b-it) and [Gemma 3](https://huggingface.co/google/gemma-3-27b-it)
+   model pages. Access is granted per account, usually within minutes.
+2. Create a token with the **Read** role at [Settings > Access Tokens](https://huggingface.co/settings/tokens).
+3. Keep it out of files and out of the repository: put it in an environment variable of your shell only,
+   `export HF_TOKEN=hf_...` (PowerShell: `$env:HF_TOKEN = "hf_..."`).
+4. Store it in the cluster as a Kubernetes Secret in the namespace Pick and Spin runs in. The model servers read it
+   from there (as the `HF_TOKEN` environment variable); it never goes into an image, a values file or the gateway.
+
+The recommended way is to create the Secret yourself, so the token is not recorded in Helm's release history:
 
 ```bash
-helm install pick-and-spin oci://ghcr.io/bhanuprakashvangala/charts/pick-and-spin \
-  -n pick-and-spin --create-namespace --set global.hfToken=$HF_TOKEN
+kubectl create namespace pick-and-spin
+kubectl -n pick-and-spin create secret generic hf-token --from-literal=HF_TOKEN=$HF_TOKEN
+```
+
+The chart looks for a Secret named `hf-token` with the key `HF_TOKEN`; to use another name, add
+`--set global.hfTokenSecret=<name>`. Alternatively, pass `--set global.hfToken=$HF_TOKEN` to `helm install` and the
+chart creates that Secret for you, at the cost of the token being kept in the release's stored values (readable by
+anyone allowed to read Secrets in the namespace). To rotate the token, delete and recreate the Secret, then restart the
+model servers that are running.
+
+#### Install
+
+With the Secret in place, one command deploys the whole system from the chart CI publishes:
+
+```bash
+helm install pick-and-spin oci://ghcr.io/bhanuprakashvangala/charts/pick-and-spin -n pick-and-spin
+kubectl -n pick-and-spin get pods                                            # only the gateway runs at first
 kubectl -n pick-and-spin port-forward svc/pick-and-spin-gateway 8080:8080   # the gateway, see "Run it as a service"
 ```
 
 If the cluster's default storage class is not ReadWriteMany, add `--set storage.storageClass=<your-rwx-class>`. From
-a checkout, use `deploy/helm/pick-and-spin` in place of the `oci://` address.
+a checkout, use `deploy/helm/pick-and-spin` in place of the `oci://` address. `helm uninstall pick-and-spin -n
+pick-and-spin` removes everything except the Secret and the weight cache volume.
 
 `deploy/helm/pick-and-spin` is an umbrella chart. It holds the model catalog (`global.models`), the shared weight
 cache and the ServiceAccount allowed to scale the model Deployments, and two subcharts: `model-servers`, one vLLM

@@ -3,6 +3,9 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ .Release.Name }}-hf-cache
+  annotations:
+    # Kept on helm uninstall, so a reinstall does not download the weights again.
+    helm.sh/resource-policy: keep
 spec:
   accessModes: [{{ .Values.storage.accessMode }}]
   {{- with .Values.storage.storageClass }}

@@ -1,0 +1,18 @@
+Pick and Spin is installed in namespace {{ .Release.Namespace }}.
+
+Hugging Face token: the model servers read HF_TOKEN from the Secret "{{ .Values.global.hfTokenSecret }}"
+{{- if .Values.global.hfToken }} (created by this release from global.hfToken).
+{{- else }}.
+Create it now if you have not:
+  kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.global.hfTokenSecret }} --from-literal=HF_TOKEN=$HF_TOKEN
+Without it the gated Llama and Gemma models fail to download; the Qwen models still work.
+{{- end }}
+{{- if (index .Values "gateway" "enabled") }}
+
+Send requests to the gateway:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-gateway 8080:8080
+  curl http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -d '{"model": "auto", "messages": [{"role": "user", "content": "What is the capital of France?"}]}'
+
+The first request to a cold model waits while its server starts (minutes, more on first download);
+after 600 s it gets 503 with Retry-After, so resend it. GET /stats shows GPU-hours and model states.
+{{- end }}
