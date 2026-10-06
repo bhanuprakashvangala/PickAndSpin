@@ -1,0 +1,53 @@
+# Pick and Spin itself. One replica owns the model Deployments, so updates use Recreate; it scales every
+# model to zero when it starts and stops.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-gateway
+  labels: {app: pick-and-spin-gateway}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: pick-and-spin-gateway}
+  template:
+    metadata:
+      labels: {app: pick-and-spin-gateway}
+      annotations:
+        checksum/endpoints: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.global.serviceAccount }}
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: gateway
+          image: {{ .Values.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args:
+            - serve
+            - --endpoints=/config/endpoints.json
+            - --namespace=$(NAMESPACE)
+            - --port={{ .Values.port }}
+            - --cooldown={{ .Values.cooldownS }}
+            - --max-wait={{ .Values.maxWaitS }}
+            {{- if .Values.static }}
+            - --static
+            {{- end }}
+          env:
+            - {name: PYTHONUNBUFFERED, value: "1"}
+            - name: NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+          ports:
+            - containerPort: {{ .Values.port }}
+          readinessProbe:
+            httpGet: {path: /healthz, port: {{ .Values.port }}}
+            periodSeconds: 5
+            failureThreshold: 60
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: endpoints, mountPath: /config, readOnly: true}
+      volumes:
+        - name: endpoints
+          configMap: {name: {{ .Release.Name }}-gateway-endpoints}

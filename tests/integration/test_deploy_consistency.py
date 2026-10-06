@@ -1,11 +1,13 @@
 """The deployment files agree with the model catalog in pickspin.config and with each other.
 
 The live runner reads deploy/endpoints.example.json: its keys must be the catalog keys in catalog
-order, and each 'model' the Hugging Face id that the model's vLLM server serves. The Helm chart
-deploys one vLLM Deployment and Service per model: its values must cover exactly the catalog, serve
-the same Hugging Face ids on the same number of GPUs, and use the names and port that the endpoint
-map points the runner at. The router Job must run a `pickspin live` command line that parses, with an
-endpoint map that exists in the image, whose working directory mirrors the repository root.
+order, and each 'model' the Hugging Face id that the model's vLLM server serves. The Helm umbrella
+chart shares one model catalog (global.models) between its subcharts: model-servers deploys one vLLM
+Deployment and Service per model, which must cover exactly the catalog, serve the same Hugging Face
+ids on the same number of GPUs, and use the names and port that the endpoint map points the runner
+at; gateway runs `pickspin serve` on the endpoint map it builds from the same catalog. The router Job
+must run a `pickspin live` command line that parses, with an endpoint map that exists in the image,
+whose working directory mirrors the repository root.
 """
 
 import re
@@ -48,8 +50,11 @@ def test_endpoint_map_lists_the_catalog_in_order(endpoints):
     }
 
 
+CHART = Path("helm") / "pick-and-spin"
+
+
 def test_helm_values_deploy_every_model_once(deploy):
-    values = (deploy / "helm" / "pick-and-spin" / "values.yaml").read_text(encoding="utf-8")
+    values = (deploy / CHART / "values.yaml").read_text(encoding="utf-8")
     keys = re.findall(r"\bkey:\s*[\"']?([^\s,\"'{}]+)", values)
     assert set(keys) == set(MODELS)
     assert len(keys) == len(MODELS)
@@ -63,12 +68,12 @@ def template_port(pattern: str, template: str) -> int:
 
 
 def test_helm_chart_serves_what_the_endpoint_map_expects(deploy, endpoints):
-    chart = deploy / "helm" / "pick-and-spin"
-    models = load_yaml(chart / "values.yaml")["models"]
+    chart = deploy / CHART
+    models = load_yaml(chart / "values.yaml")["global"]["models"]
     by_key = {spec["key"]: (name, spec) for name, spec in models.items()}
     assert set(by_key) == set(MODELS)
     # One Deployment and one Service per model, both named after the entry of models in values.yaml.
-    template = (chart / "templates" / "models.yaml").read_text(encoding="utf-8")
+    template = (chart / "charts" / "model-servers" / "templates" / "models.yaml").read_text(encoding="utf-8")
     vllm_port = template_port(r"--port=(\d+)", template)
     service_port = template_port(r"kind: Service\b.*?- port: (\d+)", template)
     assert template_port(r"kind: Service\b.*?targetPort: (\d+)", template) == vllm_port
@@ -96,5 +101,28 @@ def test_router_job_runs_pickspin_live_with_the_endpoint_map(deploy, repo_root):
     # The runner scales Deployments in its own namespace, as the chart's router ServiceAccount.
     namespace = {"name": "PS_NAMESPACE", "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}}}
     assert namespace in container["env"]
-    values = load_yaml(deploy / "helm" / "pick-and-spin" / "values.yaml")
-    assert pod["serviceAccountName"] == values["router"]["serviceAccount"]
+    values = load_yaml(deploy / CHART / "values.yaml")
+    assert pod["serviceAccountName"] == values["global"]["serviceAccount"]
+
+
+def test_umbrella_chart_has_the_model_servers_and_the_gateway(deploy):
+    chart = deploy / CHART
+    meta = load_yaml(chart / "Chart.yaml")
+    deps = {d["name"]: d for d in meta["dependencies"]}
+    assert set(deps) == {"model-servers", "gateway"}
+    for name, dep in deps.items():
+        sub = load_yaml(chart / "charts" / name / "Chart.yaml")
+        assert (sub["name"], sub["version"]) == (name, dep["version"])
+        assert dep["repository"] == f"file://charts/{name}"
+
+
+def test_gateway_serves_the_endpoint_map_with_pickspin_serve(deploy):
+    templates = deploy / CHART / "charts" / "gateway" / "templates"
+    deployment = (templates / "deployment.yaml").read_text(encoding="utf-8")
+    args = re.findall(r"^\s*- (--?[\w-]+(?:=\S+)?|serve)\s*$", deployment, re.MULTILINE)
+    assert args[0] == "serve"
+    assert "--endpoints=/config/endpoints.json" in args
+    assert "configMap: {name: {{ .Release.Name }}-gateway-endpoints}" in deployment
+    assert "serviceAccountName: {{ .Values.global.serviceAccount }}" in deployment
+    configmap = (templates / "configmap.yaml").read_text(encoding="utf-8")
+    assert 'printf "http://%s:8000" $name' in configmap  # the Service name and vLLM port of each model

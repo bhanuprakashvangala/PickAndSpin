@@ -158,7 +158,7 @@ class FakeCluster:
             return since is not None and time.monotonic() - since >= self.load_s
 
     def start_all(self) -> None:
-        """Give every model a ready replica now, as a static deployment (Helm startReplicas=1) has.
+        """Give every model a ready replica now, as a static deployment (Helm model-servers.startReplicas=1) has.
 
         This stands for the deployment, not for an actuator, so it is not recorded in calls.
         """

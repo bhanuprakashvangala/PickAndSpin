@@ -76,7 +76,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         "--static",
         action="store_true",
         help="keep every model running, with no cold starts or scaling (install the Helm chart with "
-        "--set startReplicas=1)",
+        "--set model-servers.startReplicas=1)",
     )
     # Plain strings, so that argparse's messages show them as typed; run() converts them.
     parser.add_argument(

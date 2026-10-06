@@ -1,0 +1,6 @@
+apiVersion: v2
+name: gateway
+description: The Pick and Spin gateway (pickspin serve), routing requests with Pick and scaling the model servers with Spin.
+type: application
+version: 2.1.0
+appVersion: "2.1"

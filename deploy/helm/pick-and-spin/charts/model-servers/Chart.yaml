@@ -1,0 +1,6 @@
+apiVersion: v2
+name: model-servers
+description: One vLLM Deployment and Service per model of global.models, scaled between zero and one replica by Spin.
+type: application
+version: 2.1.0
+appVersion: "2.1"

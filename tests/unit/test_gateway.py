@@ -244,3 +244,27 @@ def test_http_server_end_to_end():
     finally:
         server.shutdown()
         gw.stop.set()
+
+
+def test_serve_needs_a_server_file_or_an_endpoint_map(tmp_path):
+    from pickspin.cli.main import build_parser
+    from pickspin.errors import PickSpinError
+
+    args = build_parser().parse_args(["--root", str(tmp_path), "serve"])
+    with pytest.raises(PickSpinError, match="--servers or --endpoints"):
+        args.func(args)
+
+
+def test_serve_with_an_endpoint_map_only_takes_models_from_the_paper_pool(tmp_path):
+    from pickspin.cli.main import build_parser
+    from pickspin.errors import PickSpinError
+
+    endpoints = tmp_path / "endpoints.json"
+    endpoints.write_text(json.dumps({"mistral_7B": {"base_url": "http://m:8000", "model": "x", "deployment": "m"}}))
+    model_dir = tmp_path / "classifier"
+    model_dir.mkdir()
+    args = build_parser().parse_args(
+        ["--root", str(tmp_path), "serve", "--endpoints", str(endpoints), "--model-dir", str(model_dir)]
+    )
+    with pytest.raises(PickSpinError, match="outside the paper's pool: mistral_7B"):
+        args.func(args)

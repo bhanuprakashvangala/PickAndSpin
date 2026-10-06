@@ -1,0 +1,11 @@
+# Clients call http://<release>-gateway:<port>/v1/chat/completions with "model": "auto".
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-gateway
+  labels: {app: pick-and-spin-gateway}
+spec:
+  selector: {app: pick-and-spin-gateway}
+  ports:
+    - port: {{ .Values.port }}
+      targetPort: {{ .Values.port }}

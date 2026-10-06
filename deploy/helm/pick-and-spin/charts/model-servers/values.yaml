@@ -1,0 +1,7 @@
+# Defaults; the umbrella chart's values.yaml sets these under model-servers. The models are global.models.
+image: vllm/vllm-openai:v0.8.5
+imagePullPolicy: IfNotPresent
+startReplicas: 0
+gpuResource: nvidia.com/gpu
+nodeSelector: {}
+tolerations: []

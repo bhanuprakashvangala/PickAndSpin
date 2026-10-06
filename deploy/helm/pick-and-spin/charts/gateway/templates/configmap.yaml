@@ -1,0 +1,14 @@
+# The endpoint map the gateway routes to: one entry per model of global.models, pointing at the Service
+# and Deployment the model-servers subchart creates.
+{{- $endpoints := dict }}
+{{- range $name, $m := .Values.global.models }}
+{{- $_ := set $endpoints $m.key (dict "base_url" (printf "http://%s:8000" $name) "model" $m.hfModel "deployment" $name) }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-gateway-endpoints
+  labels: {app: pick-and-spin-gateway}
+data:
+  endpoints.json: |
+    {{- toPrettyJson $endpoints | nindent 4 }}

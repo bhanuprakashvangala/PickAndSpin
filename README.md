@@ -180,21 +180,30 @@ kubectl create namespace pick-and-spin
 kubectl -n pick-and-spin create secret generic hf-token --from-literal=HF_TOKEN=$HF_TOKEN
 helm install pick-and-spin deploy/helm/pick-and-spin -n pick-and-spin \
   --set storage.storageClass=<your-rwx-class>
+kubectl -n pick-and-spin port-forward svc/pick-and-spin-gateway 8080:8080   # the gateway, see "Run it as a service"
 ```
 
-Every Deployment starts at zero replicas. Start the router Job; it runs `pickspin live` as the ServiceAccount the
-chart creates, which is allowed to scale the model Deployments. Its image, `ghcr.io/bhanuprakashvangala/pick-and-spin`,
-is built from `deploy/Dockerfile` by CI on every push to `main` and holds the package, the classifier and the queries;
-to use your own build, set it in `deploy/router-job.yaml`:
+`deploy/helm/pick-and-spin` is an umbrella chart. It holds the model catalog (`global.models`), the shared weight
+cache and the ServiceAccount allowed to scale the model Deployments, and two subcharts: `model-servers`, one vLLM
+Deployment and Service per model, and `gateway`, Pick and Spin itself (`pickspin serve` on the endpoint map built from
+the same catalog). Every model Deployment starts at zero replicas, and the gateway scales them as requests need them.
+Change a model in `global.models`, turn a subchart off with `--set gateway.enabled=false`, or install the models
+running with `--set model-servers.startReplicas=1 --set gateway.static=true`.
+
+For the paper's benchmark, turn the gateway off (both scale the same Deployments) and start the router Job; it runs
+`pickspin live` as the chart's ServiceAccount. Its image, `ghcr.io/bhanuprakashvangala/pick-and-spin`, is built from
+`deploy/Dockerfile` by CI on every push to `main` and holds the package, the classifier and the queries; to use your
+own build, set it in `deploy/router-job.yaml`:
 
 ```bash
+helm upgrade pick-and-spin deploy/helm/pick-and-spin -n pick-and-spin --reuse-values --set gateway.enabled=false
 kubectl -n pick-and-spin apply -f deploy/router-job.yaml
 docker build -f deploy/Dockerfile -t <registry>/pick-and-spin . && docker push <registry>/pick-and-spin   # optional
 ```
 
 `pickspin live` scales every model to zero, routes the queries with 250 workers, and writes
 `results/live/pick_spin_<time>.jsonl` and a summary with the GPU-hours, utilization and cold starts that Spin
-measured. `--static` keeps every model running instead (install the chart with `--set startReplicas=1`), and
+measured. `--static` keeps every model running instead (install the chart with `--set model-servers.startReplicas=1`), and
 `--limit 100` gives a quick check. Outside the image it needs the `live` and `classifier` extras. The static
 baseline and the judge:
 
@@ -316,7 +325,7 @@ results/traces/                 experiment traces (no model responses)
   pick_spin_routed.csv.gz       the routed run: tier, chosen model, latency, cold-start flag, in arrival order
 src/pickspin/                   the pickspin package and command (see Package and paper)
 legacy/recorded_run/            the runner that recorded results/traces/pick_spin_routed.csv.gz (see Results)
-deploy/                         Helm chart (nine vLLM Deployments, router RBAC), endpoint map, router Job and image
+deploy/                         Helm umbrella chart (model servers + gateway), endpoint map, router Job and image
 tests/unit/                     hermetic unit tests
 tests/integration/              tests on the released data and against local stub servers
 tests/data/golden/              digests of the version 1.1.0 simulator's outputs

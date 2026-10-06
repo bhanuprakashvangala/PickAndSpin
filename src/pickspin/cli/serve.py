@@ -1,10 +1,12 @@
 """`pickspin serve`: run the Pick and Spin gateway, an OpenAI-compatible service over the model servers.
 
-The models come from a server file (deploy/nautilus/servers.json), so replacing or adding a model means
-editing that file. Each model runs as a Kubernetes Job that Spin creates when a request needs it and
-deletes after --cooldown idle seconds; --static instead expects every server to be running already.
-The gateway deletes every model's Job when it starts and when it stops (also on SIGTERM), so no server
-outlives it. Needs the [classifier] extra, and the [live] extra unless --static.
+Two ways to run the model servers. With --servers (deploy/nautilus/servers.json), each model runs as a
+Kubernetes Job that Spin creates when a request needs it and deletes after --cooldown idle seconds, and
+the file defines the models, so replacing a model means editing it. With only --endpoints (the Helm
+chart's endpoint map), each model of the paper's pool is a Deployment that Spin scales between zero and
+one replica. --static instead expects every server to be running already. The gateway scales every model
+to zero when it starts and when it stops (also on SIGTERM), so no server outlives it. Needs the
+[classifier] extra, and the [live] extra unless --static.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from pathlib import Path
 from types import FrameType
 
 from pickspin.config import DEFAULT_SPIN
+from pickspin.errors import PickSpinError
 from pickspin.paths import Paths, require_file, resolve_path
 from pickspin.spin.lifecycle import LatencySignal
 
@@ -36,21 +39,21 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     parser.add_argument(
         "--servers",
         type=Path,
-        required=True,
         metavar="FILE",
-        help="the server file that defines the models (deploy/nautilus/servers.json)",
+        help="run each model as a Job described in this server file (deploy/nautilus/servers.json)",
     )
     parser.add_argument(
         "--endpoints",
         type=Path,
         metavar="FILE",
-        help="an endpoint map overriding the Service URLs derived from the server file",
+        help="the endpoint map: each model's Service URL, served model and Deployment; without --servers the "
+        "models are the paper's pool and are scaled as Deployments, with it the map overrides the derived URLs",
     )
     parser.add_argument(
         "--namespace",
         default=os.environ.get("PS_NAMESPACE", "pick-and-spin"),
         metavar="NS",
-        help="the Kubernetes namespace of the model Jobs (default: $PS_NAMESPACE, else pick-and-spin)",
+        help="the Kubernetes namespace of the model servers (default: $PS_NAMESPACE, else pick-and-spin)",
     )
     parser.add_argument("--host", default="0.0.0.0", help="address to listen on (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8080, help="port to listen on (default: 8080)")
@@ -98,11 +101,17 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
 def run(args: argparse.Namespace) -> int:
     """Run the gateway until interrupted and return the exit status."""
     paths = Paths(args.root)
-    require_file(args.servers, "server file")
+    if args.servers is None and args.endpoints is None:
+        raise PickSpinError("pickspin serve needs --servers or --endpoints")
+    if args.servers is not None:
+        require_file(args.servers, "server file")
+    if args.endpoints is not None:
+        require_file(args.endpoints, "endpoint map")
     model_dir = resolve_path(args.model_dir, paths.classifier_model, env_var="PS_CLASSIFIER")
     require_file(model_dir, "DistilBERT classifier")
 
-    from pickspin.config import tiers_of
+    from pickspin.config import MODELS, ModelSpec, tiers_of
+    from pickspin.live.actuator import Actuator, KubernetesActuator
     from pickspin.live.gateway import Gateway, serve
     from pickspin.live.jobs import JobActuator, load_servers, render_endpoints
     from pickspin.live.vllm import bearer_headers, load_endpoints
@@ -110,13 +119,23 @@ def run(args: argparse.Namespace) -> int:
     from pickspin.pick.router import Pick
     from pickspin.spin.lifecycle import Spin
 
-    servers = load_servers(args.servers)
-    catalog = servers["catalog"]
-    endpoints = load_endpoints(args.endpoints) if args.endpoints else render_endpoints(servers)
-    actuator = None
-    if not args.static:
-        timeout_s = float(servers["defaults"].get("load_timeout_s", 3600))
-        actuator = JobActuator(servers, endpoints, args.namespace, timeout_s=timeout_s)
+    actuator: Actuator | None = None
+    catalog: dict[str, ModelSpec]
+    if args.servers is not None:
+        servers = load_servers(args.servers)
+        catalog = servers["catalog"]
+        endpoints = load_endpoints(args.endpoints) if args.endpoints else render_endpoints(servers)
+        if not args.static:
+            timeout_s = float(servers["defaults"].get("load_timeout_s", 3600))
+            actuator = JobActuator(servers, endpoints, args.namespace, timeout_s=timeout_s)
+    else:
+        endpoints = load_endpoints(args.endpoints)
+        unknown = sorted(set(endpoints) - set(MODELS))
+        if unknown:
+            raise PickSpinError(f"{args.endpoints} names models outside the paper's pool: {', '.join(unknown)}")
+        catalog = {key: MODELS[key] for key in endpoints}
+        if not args.static:
+            actuator = KubernetesActuator(endpoints, args.namespace)
     spin = Spin(
         catalog,
         cooldown_s=args.cooldown,

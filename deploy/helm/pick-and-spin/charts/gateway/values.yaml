@@ -1,0 +1,11 @@
+# Defaults; the umbrella chart's values.yaml sets these under gateway.
+image: ghcr.io/bhanuprakashvangala/pick-and-spin:latest
+imagePullPolicy: Always
+port: 8080
+static: false
+cooldownS: 300
+maxWaitS: 600
+resources:
+  requests: {cpu: "1", memory: 4Gi}
+  limits: {cpu: "1", memory: 4Gi}
+nodeSelector: {}

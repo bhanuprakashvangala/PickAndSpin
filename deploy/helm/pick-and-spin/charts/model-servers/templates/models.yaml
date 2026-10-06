@@ -1,4 +1,4 @@
-{{- range $name, $m := .Values.models }}
+{{- range $name, $m := .Values.global.models }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -36,7 +36,7 @@ spec:
               value: /cache
             - name: HF_TOKEN
               valueFrom:
-                secretKeyRef: {name: {{ $.Values.hfTokenSecret }}, key: HF_TOKEN, optional: true}
+                secretKeyRef: {name: {{ $.Values.global.hfTokenSecret }}, key: HF_TOKEN, optional: true}
           ports:
             - containerPort: 8000
           readinessProbe:
